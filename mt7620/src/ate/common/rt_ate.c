@@ -1536,6 +1536,21 @@ VOID ATEAPStop(
 			else
 				ATE_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R196, 0x2F);
 	
+			ATE_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R195, 0x8D);
+			if (pAd->CommonCfg.BBPCurrentBW == BW_20)
+			{
+#ifdef RT6352_EL_SUPPORT
+				if (pAd->NicConfig2.field.ExternalLNAForG)
+					ATE_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R196, 0x15);
+				else
+#endif /* RT6352_EL_SUPPORT */
+					ATE_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R196, 0x1A);
+			}
+			else
+			{
+				ATE_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R196, 0x10);
+			}
+
 			ATEBBPWriteWithRxChain(pAd, BBP_R66, pAd->CommonCfg.MO_Cfg.Stored_BBP_R66, RX_CHAIN_ALL);
 		}
 #endif /* DYNAMIC_VGA_SUPPORT */
