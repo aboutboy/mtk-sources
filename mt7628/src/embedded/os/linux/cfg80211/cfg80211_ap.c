@@ -120,40 +120,79 @@ static INT CFG80211DRV_UpdateApSettingFromBeacon(PRTMP_ADAPTER pAd, UINT mbss_id
 	ht_info = cfg80211_find_ie(CFG_HT_OP_EID, pBeacon->beacon_tail, pBeacon->beacon_tail_len);
 	
 
+	
 	/* SSID */
-	NdisZeroMemory(pMbss->Ssid, pMbss->SsidLen);
+
 	if (ssid_ie == NULL) 
 	{
 		NdisMoveMemory(pMbss->Ssid, "CFG_Linux_GO", 12);
 		pMbss->SsidLen = 12;
-		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR,("CFG: SSID Not Found In Packet\n"));
+		DBGPRINT(RT_DEBUG_ERROR,("CFG: SSID Not Found In Packet\n"));
 	}
-	else
+	else if (pBeacon->ssid_len != 0)
 	{
-		pMbss->SsidLen = ssid_ie[1];
-		NdisCopyMemory(pMbss->Ssid, ssid_ie+2, pMbss->SsidLen);
-		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE,("CFG : SSID: %s, %d\n", pMbss->Ssid, pMbss->SsidLen));
+		NdisZeroMemory(pMbss->Ssid, pMbss->SsidLen);
+		pMbss->SsidLen = pBeacon->ssid_len;
+		NdisCopyMemory(pMbss->Ssid, ssid_ie+2, pMbss->SsidLen);		
+		DBGPRINT(RT_DEBUG_ERROR,("\nCFG : SSID: %s, %d\n", pMbss->Ssid, pMbss->SsidLen));
 	}
 
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,0))
-	if (pBeacon->hidden_ssid > 0 && pBeacon->hidden_ssid < 3) {
+	if (pBeacon->hidden_ssid > 0 && pBeacon->hidden_ssid < 3) 
+	{
 		pMbss->bHideSsid = TRUE;
+		if ((pBeacon->ssid_len != 0) 
+			 && (pBeacon->ssid_len <= MAX_LEN_OF_SSID))
+		{
+			pMbss->SsidLen = pBeacon->ssid_len;
+			NdisCopyMemory(pMbss->Ssid, pBeacon->ssid, pMbss->SsidLen);
+			DBGPRINT(RT_DEBUG_ERROR,("80211> [Hidden] SSID: %s, %d\n", pMbss->Ssid, pMbss->SsidLen));
+		}
 	}
 	else
 		pMbss->bHideSsid = FALSE;
 
-	if (pBeacon->hidden_ssid == 1)
-		pMbss->SsidLen = 0;
 #endif /* LINUX_VERSION_CODE 3.4.0 */
 
 	/* WMM EDCA Paramter */ 
 	CFG80211_SyncPacketWmmIe(pAd, pBeacon->beacon_tail, pBeacon->beacon_tail_len);
+	pMbss->RSNIE_Len[0] = 0;
+	pMbss->RSNIE_Len[1] = 0;
+	NdisZeroMemory(pMbss->RSN_IE[0], MAX_LEN_OF_RSNIE);
+	NdisZeroMemory(pMbss->RSN_IE[1], MAX_LEN_OF_RSNIE);
 	
-	
+	DBGPRINT(RT_DEBUG_TRACE,("80211> pBeacon->privacy = %d\n", pBeacon->privacy));
+	if (pBeacon->privacy)
+	{
+		/* Security */
+		if (pBeacon->auth_type == NL80211_AUTHTYPE_SHARED_KEY)
+		{
+			/*
+				Shared WEP
+			*/
+			wdev->WepStatus = Ndis802_11WEPEnabled;
+			wdev->AuthMode = Ndis802_11AuthModeShared;
+		}
+		else
+			CFG80211_ParseBeaconIE(pAd, pMbss, wdev, (UCHAR *)wpa_ie, (UCHAR *)rsn_ie);
 
-	CFG80211_ParseBeaconIE(pAd, pMbss, wdev, wpa_ie, rsn_ie);
-
-
+		if ((wdev->WepStatus == 0) &&
+			(wdev->AuthMode == 0))
+		{
+			/*
+				WEP Auto
+			*/
+			wdev->WepStatus = Ndis802_11WEPEnabled;
+			wdev->AuthMode = Ndis802_11AuthModeAutoSwitch;
+		}
+	}
+	else
+	{
+		wdev->WepStatus = Ndis802_11EncryptionDisabled;		
+		wdev->AuthMode = Ndis802_11AuthModeOpen;		
+	}
+	CFG80211_ParseBeaconIE(pAd, pMbss, wdev, (UCHAR *)wpa_ie, (UCHAR *)rsn_ie);
 	pMbss->CapabilityInfo =	CAP_GENERATE(1, 0, (wdev->WepStatus != Ndis802_11EncryptionDisabled), 
 			 (pAd->CommonCfg.TxPreamble == Rt802_11PreambleLong ? 0 : 1), pAd->CommonCfg.bUseShortSlotTime, /*SpectrumMgmt*/FALSE);
 			 
@@ -216,6 +255,12 @@ VOID CFG80211DRV_DisableApInterface(PRTMP_ADAPTER pAd)
 
 	OPSTATUS_CLEAR_FLAG(pAd, fOP_AP_STATUS_MEDIA_STATE_CONNECTED);
 	RTMP_IndicateMediaState(pAd, NdisMediaStateDisconnected);
+#ifdef CONFIG_STA_SUPPORT
+#ifdef P2P_SINGLE_DEVICE
+	/* re-assoc to STA's wdev */
+	RTMP_OS_NETDEV_SET_WDEV(pAd->net_dev, &pAd->StaCfg.wdev);
+#endif /* P2P_SINGLE_DEVICE */
+#endif /*CONFIG_STA_SUPPORT*/
 }
 
 #ifdef RT_CFG80211_P2P_MULTI_CHAN_SUPPORT
@@ -455,6 +500,7 @@ BOOLEAN CFG80211DRV_OpsBeaconSet(VOID *pAdOrg, VOID *pData)
 	CFG80211_UpdateBeacon(pAd, pBeacon->beacon_head, pBeacon->beacon_head_len,
 			  				   pBeacon->beacon_tail, pBeacon->beacon_tail_len,
 							   TRUE);
+	return TRUE;
 }
 	
 BOOLEAN CFG80211DRV_OpsBeaconAdd(VOID *pAdOrg, VOID *pData)
@@ -642,7 +688,7 @@ BOOLEAN CFG80211DRV_OpsBeaconAdd(VOID *pAdOrg, VOID *pData)
 	pAd->MacTab.Content[0].Addr[0] = 0x01;
 	pAd->MacTab.Content[0].HTPhyMode.field.MODE = MODE_OFDM;
 	pAd->MacTab.Content[0].HTPhyMode.field.MCS = 3;
-#ifdef RT_CFG80211_P2P_MULTI_CHAN_SUPPORT
+
 #ifdef DOT11_N_SUPPORT
 	SetCommonHT(pAd);
 #endif /* DOT11_N_SUPPORT */
@@ -655,14 +701,17 @@ BOOLEAN CFG80211DRV_OpsBeaconAdd(VOID *pAdOrg, VOID *pData)
 	else if (pAd->CommonCfg.RegTransmitSetting.field.EXTCHA == EXTCHA_ABOVE)
 		pAd->CommonCfg.CentralChannel = pAd->CommonCfg.Channel + 2;
 	else
-	pAd->CommonCfg.CentralChannel = pAd->CommonCfg.Channel;
+		pAd->CommonCfg.CentralChannel = pAd->CommonCfg.Channel;
 	
 	AsicSwitchChannel(pAd, pAd->CommonCfg.CentralChannel,FALSE); 
-       AsicLockChannel(pAd, pAd->CommonCfg.CentralChannel);
+    AsicLockChannel(pAd, pAd->CommonCfg.CentralChannel);
+#ifdef RT_CFG80211_P2P_MULTI_CHAN_SUPPORT
 	bbp_set_bw(pAd, wdev->bw);
 #else
-	pAd->CommonCfg.CentralChannel = pAd->CommonCfg.Channel;
+	bbp_set_bw(pAd, pAd->CommonCfg.RegTransmitSetting.field.BW);
 #endif /* RT_CFG80211_P2P_MULTI_CHAN_SUPPORT */
+
+	
 
 	
 	AsicBBPAdjust(pAd);
@@ -745,7 +794,6 @@ BOOLEAN CFG80211DRV_OpsBeaconAdd(VOID *pAdOrg, VOID *pData)
 
 	OPSTATUS_SET_FLAG(pAd, fOP_AP_STATUS_MEDIA_STATE_CONNECTED);	
 	RTMP_IndicateMediaState(pAd, NdisMediaStateConnected);
-
 	return TRUE;
 }
 
@@ -792,7 +840,7 @@ BOOLEAN CFG80211DRV_ApKeyDel(
 
 #ifdef MT_MAC
 			if (pAd->chipCap.hif_type == HIF_MT)
-            	CmdProcAddRemoveKey(pAd, 1, pEntry->apidx, 0, pEntry->wcid, PAIRWISEKEYTABLE, 
+            	CmdProcAddRemoveKey(pAd, 1, pEntry->func_tb_idx, 0, pEntry->wcid, PAIRWISEKEYTABLE, 
 									&pEntry->PairwiseKey, pEntry->Addr);
 #endif /* MT_MAC */
 
@@ -809,7 +857,7 @@ BOOLEAN CFG80211DRV_ApKeyAdd(
 #ifdef CONFIG_AP_SUPPORT
 	PRTMP_ADAPTER pAd = (PRTMP_ADAPTER)pAdOrg;
 	CMD_RTPRIV_IOCTL_80211_KEY *pKeyInfo;
-	MAC_TABLE_ENTRY *pEntry;
+	MAC_TABLE_ENTRY *pEntry=NULL;
 	UINT Wcid = 0;
 #ifdef RT_CFG80211_P2P_SUPPORT
 	UINT apidx = CFG_GO_BSSID_IDX;
@@ -821,7 +869,8 @@ BOOLEAN CFG80211DRV_ApKeyAdd(
 	
 	DBGPRINT(RT_DEBUG_TRACE,("%s =====> \n", __FUNCTION__));
 	pKeyInfo = (CMD_RTPRIV_IOCTL_80211_KEY *)pData;
-	
+
+
 	if (pKeyInfo->KeyType == RT_CMD_80211_KEY_WEP40 || pKeyInfo->KeyType == RT_CMD_80211_KEY_WEP104)
 	{
 		pWdev->WepStatus = Ndis802_11WEPEnabled;
@@ -833,6 +882,7 @@ BOOLEAN CFG80211DRV_ApKeyAdd(
 				pObj = (POS_COOKIE) pAd->OS_Cookie;
 				
 				pSharedKey = &pAd->SharedKey[apidx][pKeyInfo->KeyId];
+				pSharedKey->KeyLen = pKeyInfo->KeyLen;
 				NdisMoveMemory(pSharedKey->Key, pKeyInfo->KeyBuf, pKeyInfo->KeyLen);
 
 
@@ -893,7 +943,7 @@ BOOLEAN CFG80211DRV_ApKeyAdd(
 				pEntry->PairwiseKey.CipherAlg = CIPHER_AES;
 				
 				AsicAddPairwiseKeyEntry(pAd, (UCHAR)pEntry->Aid, &pEntry->PairwiseKey);
-				RTMPSetWcidSecurityInfo(pAd, pEntry->apidx, (UINT8)(pKeyInfo->KeyId & 0x0fff),
+				RTMPSetWcidSecurityInfo(pAd, pEntry->func_tb_idx, (UINT8)(pKeyInfo->KeyId & 0x0fff),
 				pEntry->PairwiseKey.CipherAlg, pEntry->Aid, PAIRWISEKEYTABLE);
 
 #ifdef MT_MAC
@@ -986,7 +1036,7 @@ BOOLEAN CFG80211DRV_ApKeyAdd(
 				pEntry->PairwiseKey.CipherAlg = CIPHER_TKIP;
 				
 				AsicAddPairwiseKeyEntry(pAd, (UCHAR)pEntry->Aid, &pEntry->PairwiseKey);
-				RTMPSetWcidSecurityInfo(pAd, pEntry->apidx, (UINT8)(pKeyInfo->KeyId & 0x0fff),
+				RTMPSetWcidSecurityInfo(pAd, pEntry->func_tb_idx, (UINT8)(pKeyInfo->KeyId & 0x0fff),
 				pEntry->PairwiseKey.CipherAlg, pEntry->Aid, PAIRWISEKEYTABLE);
 
 #ifdef MT_MAC
@@ -1073,6 +1123,7 @@ INT CFG80211_ApStaDel(
 			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR,("Can't find pEntry(%02x:%02x:%02x:%02x:%02x:%02x) in ApStaDel\n",
 						 PRINT_MAC(pMac)));
 	}
+	return 0;
 }
 
 INT CFG80211_setApDefaultKey(

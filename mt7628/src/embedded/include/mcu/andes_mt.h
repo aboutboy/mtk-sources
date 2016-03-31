@@ -93,7 +93,9 @@ VOID CmdEfusBufferModeSet(struct _RTMP_ADAPTER *pAd);
 NTSTATUS CmdPowerOnWiFiSys(struct _RTMP_ADAPTER *pAd);
 VOID CmdSetTxPowerCtrl(struct _RTMP_ADAPTER *pAd, UINT8 central_chl);
 VOID CmdGetThermalSensorResult(struct _RTMP_ADAPTER *pAd, UINT8 ActionIdx,UINT32 *Result);
-INT AndesLedOP(struct _RTMP_ADAPTER *pAd,UCHAR LedIdx,UCHAR LinkStatus);
+#ifdef LED_CONTROL_SUPPORT
+INT AndesLedEnhanceOP(struct _RTMP_ADAPTER *pAd,UCHAR LedIdx,UCHAR on_time, UCHAR off_time, UCHAR led_parameter);
+#endif
 
 #ifdef MT7636_BTCOEX
 INT AndesCoexOP(struct _RTMP_ADAPTER *pAd,  UCHAR Status);

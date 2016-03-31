@@ -754,6 +754,22 @@ VOID APUpdateBeaconFrame(RTMP_ADAPTER *pAd, INT apidx)
 	else if (wdev->AuthMode >= Ndis802_11AuthModeWPA)
 	{
 		ULONG TmpLen;
+#ifdef CONFIG_HOTSPOT_R2
+		extern UCHAR		OSEN_IE[];
+		extern UCHAR		OSEN_IELEN;
+
+		if ((pMbss->HotSpotCtrl.HotSpotEnable == 0) && (pMbss->HotSpotCtrl.bASANEnable == 1) && (pMbss->wdev.AuthMode == Ndis802_11AuthModeWPA2))
+		{
+			RSNIe = IE_WPA;
+			MakeOutgoingFrame(pBeaconFrame+FrameLen,    &TmpLen,
+						  1,                            &RSNIe,
+						  1,                            &OSEN_IELEN,
+						  OSEN_IELEN,      				OSEN_IE,
+						  END_OF_ARGS);
+			FrameLen += TmpLen;
+		}
+		else
+#endif /* CONFIG_HOTSPOT_R2 */
 		{
 			MakeOutgoingFrame(pBeaconFrame+FrameLen,        &TmpLen,
 						  1,                            &RSNIe,
@@ -849,52 +865,6 @@ VOID APUpdateBeaconFrame(RTMP_ADAPTER *pAd, INT apidx)
 			FrameLen += sizeof(HT_EXT_CHANNEL_SWITCH_ANNOUNCEMENT_IE);
 		}
 
-#ifdef DOT11_VHT_AC
-		if (WMODE_CAP_AC(PhyMode)) {
-			INT tp_len, wb_len = 0;
-			UCHAR *ch_sw_wrapper;
-			VHT_TXPWR_ENV_IE txpwr_env;
-
-
-			*ptr = IE_CH_SWITCH_WRAPPER;
-			ch_sw_wrapper = (UCHAR *)(ptr + 1); // reserve for length
-			ptr += 2; // skip len
-
-			if (pComCfg->RegTransmitSetting.field.BW == BW_40) {
-				WIDE_BW_CH_SWITCH_ELEMENT wb_info;
-
-				*ptr = IE_WIDE_BW_CH_SWITCH;
-				*(ptr + 1) = sizeof(WIDE_BW_CH_SWITCH_ELEMENT);
-				ptr += 2;
-				NdisZeroMemory(&wb_info, sizeof(WIDE_BW_CH_SWITCH_ELEMENT));
-				if (pComCfg->vht_bw == VHT_BW_2040)
-					wb_info.new_ch_width = 0;
-				else
-					wb_info.new_ch_width = 1;
-
-				if (pComCfg->vht_bw == VHT_BW_80) {
-					wb_info.center_freq_1 = vht_cent_ch_freq(pAd, pComCfg->Channel);
-					wb_info.center_freq_2 = 0;
-				}
-				NdisMoveMemory(ptr, &wb_info, sizeof(WIDE_BW_CH_SWITCH_ELEMENT));
-				wb_len = sizeof(WIDE_BW_CH_SWITCH_ELEMENT);
-				ptr += wb_len;
-				wb_len += 2;
-			}
-
-			*ptr = IE_VHT_TXPWR_ENV;
-			NdisZeroMemory(&txpwr_env, sizeof(VHT_TXPWR_ENV_IE));
-			tp_len = build_vht_txpwr_envelope(pAd, (UCHAR *)&txpwr_env);
-			*(ptr + 1) = tp_len;
-			ptr += 2;
-			NdisMoveMemory(ptr, &txpwr_env, tp_len);
-			ptr += tp_len;
-			tp_len += 2;
-			*ch_sw_wrapper = wb_len + tp_len;
-
-			FrameLen += (2 + wb_len + tp_len);
-		}
-#endif /* DOT11_VHT_AC */
 
 #endif /* DOT11_N_SUPPORT */
 	}
@@ -991,14 +961,49 @@ VOID APUpdateBeaconFrame(RTMP_ADAPTER *pAd, INT apidx)
 	 	}
 #endif /* DOT11N_DRAFT3 */
 
+#ifdef CONFIG_HOTSPOT
+	if (pMbss->HotSpotCtrl.HotSpotEnable)
+ 	{
+		ULONG	TmpLen;
 
-#ifdef DOT11_VHT_AC
-		if (WMODE_CAP_AC(PhyMode) && (pComCfg->Channel > 14))
-		{
-			int _len = build_vht_ies(pAd, (UCHAR *)(pBeaconFrame+FrameLen), SUBTYPE_BEACON);
-			FrameLen += _len;
-		}
-#endif /* DOT11_VHT_AC */
+		/* Indication element */
+		MakeOutgoingFrame(pBeaconFrame + FrameLen, &TmpLen,
+						  pMbss->HotSpotCtrl.HSIndicationIELen,
+						  pMbss->HotSpotCtrl.HSIndicationIE, END_OF_ARGS);
+
+		FrameLen += TmpLen;
+
+		/* Interworking element */
+		MakeOutgoingFrame(pBeaconFrame + FrameLen, &TmpLen,
+						  pMbss->HotSpotCtrl.InterWorkingIELen,
+						  pMbss->HotSpotCtrl.InterWorkingIE, END_OF_ARGS);
+
+		FrameLen += TmpLen;
+
+		/* Advertisement Protocol element */
+		MakeOutgoingFrame(pBeaconFrame + FrameLen, &TmpLen,
+						  pMbss->HotSpotCtrl.AdvertisementProtoIELen,
+						  pMbss->HotSpotCtrl.AdvertisementProtoIE, END_OF_ARGS);
+
+		FrameLen += TmpLen;
+
+		/* Roaming Consortium element */
+		MakeOutgoingFrame(pBeaconFrame + FrameLen, &TmpLen,
+						  pMbss->HotSpotCtrl.RoamingConsortiumIELen,
+						  pMbss->HotSpotCtrl.RoamingConsortiumIE, END_OF_ARGS);
+
+		FrameLen += TmpLen;
+
+		/* P2P element */
+		MakeOutgoingFrame(pBeaconFrame + FrameLen, &TmpLen,
+						  pMbss->HotSpotCtrl.P2PIELen,
+						  pMbss->HotSpotCtrl.P2PIE, END_OF_ARGS);
+
+		FrameLen += TmpLen;
+
+ 	}
+#endif
+
 	}
 #endif /* DOT11_N_SUPPORT */
 
@@ -1031,14 +1036,30 @@ VOID APUpdateBeaconFrame(RTMP_ADAPTER *pAd, INT apidx)
 		if (pMbss->WNMCtrl.ProxyARPEnable)
 			extCapInfo.proxy_arp = 1;
 
+#ifdef CONFIG_HOTSPOT_R2
+		if (pMbss->WNMCtrl.WNMNotifyEnable)
+			extCapInfo.wnm_notification = 1;
+
+		if (pMbss->HotSpotCtrl.QosMapEnable)
+			extCapInfo.qosmap= 1;
+#endif /* CONFIG_HOTSPOT_R2 */
 #endif /* CONFIG_DOT11V_WNM */
 
+#ifdef CONFIG_HOTSPOT
+		if (pMbss->HotSpotCtrl.HotSpotEnable)
+			extCapInfo.interworking = 1;
+#endif /* CONFIG_HOTSPOT */
 
-#ifdef DOT11_VHT_AC
-		if (WMODE_CAP_AC(PhyMode) &&
-			(pAd->CommonCfg.Channel > 14))
-			extCapInfo.operating_mode_notification = 1;
-#endif /* DOT11_VHT_AC */
+#ifdef DOT11V_WNM_SUPPORT
+		if (IS_BSS_TRANSIT_MANMT_SUPPORT(pAd, apidx))
+		{
+			extCapInfo.BssTransitionManmt = 1;
+		}
+		if (IS_WNMDMS_SUPPORT(pAd, apidx))
+		{
+			extCapInfo.DMSSupport = 1;
+		}
+#endif /* DOT11V_WNM_SUPPORT */
 
 		pInfo = (PUCHAR)(&extCapInfo);
 		for (infoPos = 0; infoPos < extInfoLen; infoPos++)
@@ -1061,25 +1082,6 @@ VOID APUpdateBeaconFrame(RTMP_ADAPTER *pAd, INT apidx)
 		}
 	}
 
-#ifdef WFA_VHT_PF
-	if (pAd->force_vht_op_mode == TRUE)
-	{
-		ULONG TmpLen;
-		UCHAR operating_ie = IE_OPERATING_MODE_NOTIFY, operating_len = 1;
-		OPERATING_MODE operating_mode;
-
-		operating_mode.rx_nss_type = 0;
-		operating_mode.rx_nss = (pAd->vht_pf_op_ss - 1);
-		operating_mode.ch_width = pAd->vht_pf_op_bw;
-
-		MakeOutgoingFrame(pBeaconFrame+FrameLen, &TmpLen,
-						  1,	&operating_ie,
-						  1,	&operating_len,
-						  1,	&operating_mode,
-						  END_OF_ARGS);
-		FrameLen += TmpLen;
-	}
-#endif /* WFA_VHT_PF */
 
 	/* add WMM IE here */
 	if (pMbss->wdev.bWmmCapable)
@@ -1118,6 +1120,11 @@ VOID APUpdateBeaconFrame(RTMP_ADAPTER *pAd, INT apidx)
 #ifdef AP_QLOAD_SUPPORT
 	if (pAd->phy_ctrl.FlgQloadEnable != 0)
 	{
+#ifdef CONFIG_HOTSPOT_R2
+		if (pMbss->HotSpotCtrl.QLoadTestEnable == 1)
+			FrameLen += QBSS_LoadElementAppend_HSTEST(pAd, pBeaconFrame+FrameLen, apidx);
+		else if (pMbss->HotSpotCtrl.QLoadTestEnable == 0)
+#endif
 		FrameLen += QBSS_LoadElementAppend(pAd, pBeaconFrame+FrameLen);
 	}
 #endif /* AP_QLOAD_SUPPORT */
@@ -1143,22 +1150,6 @@ VOID APUpdateBeaconFrame(RTMP_ADAPTER *pAd, INT apidx)
 						END_OF_ARGS);
 		FrameLen += TmpLen;
 
-#ifdef DOT11_VHT_AC
-		if (WMODE_CAP_AC(PhyMode)) {
-			ULONG TmpLen;
-			UINT8 vht_txpwr_env_ie = IE_VHT_TXPWR_ENV;
-			UINT8 ie_len;
-			VHT_TXPWR_ENV_IE txpwr_env;
-
-			ie_len = build_vht_txpwr_envelope(pAd, (UCHAR *)&txpwr_env);
-			MakeOutgoingFrame(pBeaconFrame+FrameLen, &TmpLen,
-						1,							&vht_txpwr_env_ie,
-						1,							&ie_len,
-						ie_len,						&txpwr_env,
-						END_OF_ARGS);
-			FrameLen += TmpLen;
-		}
-#endif /* DOT11_VHT_AC */
 
 	}
 #endif /* A_BAND_SUPPORT */

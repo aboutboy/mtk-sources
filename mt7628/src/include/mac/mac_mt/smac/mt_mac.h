@@ -1439,6 +1439,10 @@ typedef struct wtbl_entry {
 
 #define MT_PSE_BASE_ADDR		0xa0000000
 
+#define MT_TOP_REMAP_ADDR		0x80000000 //TOP start address 8002-0000, but only can remap to 8000-0000
+#define MT_TOP_REMAP_ADDR_THEMAL	 0xa2000 //Get Thermal sensor adc cal value: 0x80022000 bits(8,14), Offset 0x80000 + 0x22000 = 0xa2000
+#define MT_TOP_THEMAL_ADC	0x80022000 //Get Thermal sensor adc cal value: 0x80022000 bits(8,14)
+
 #define MCU_CFG_BASE		0x2000
 #define MCU_PCIE_REMAP_1	(MCU_CFG_BASE + 0x500)
 #define REMAP_1_OFFSET_MASK (0x3ffff)

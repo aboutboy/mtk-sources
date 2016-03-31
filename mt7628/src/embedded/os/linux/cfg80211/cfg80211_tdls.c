@@ -436,10 +436,6 @@ BOOLEAN CFG80211DRV_StaTdlsInsertDeletepEntry(
 								pAd->StaActive.SupRateLen,
 								pAd->StaActive.ExtRate,
 								pAd->StaActive.ExtRateLen,
-#ifdef DOT11_VHT_AC
-								0,
-								NULL,
-#endif /* DOT11_VHT_AC */
 								&HtCapabilityTmp,
 								HtLen);
 
@@ -600,6 +596,9 @@ VOID cfg_tdls_UAPSDP_PsmModeChange(
          (wdev->AuthMode == Ndis802_11AuthModeWPAPSK) ||
          (wdev->AuthMode == Ndis802_11AuthModeWPA2) ||
          (wdev->AuthMode == Ndis802_11AuthModeWPA2PSK)
+#ifdef WPA_SUPPLICANT_SUPPORT
+		|| (wdev->IEEE8021X == TRUE)
+#endif
 #ifdef WAPI_SUPPORT
 		  || (wdev->AuthMode == Ndis802_11AuthModeWAICERT)
 		  || (wdev->AuthMode == Ndis802_11AuthModeWAIPSK)

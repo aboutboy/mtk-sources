@@ -198,6 +198,12 @@ static VOID	WscParseEncrSettings(
 	IN	INT					PlainLength,
 	IN  PWSC_CTRL           pWscControl)
 {
+#ifdef CONFIG_STA_SUPPORT
+    /* Point to  M7 Profile */
+	PWSC_PROFILE        pProfile = (PWSC_PROFILE) &pAdapter->StaCfg.WscControl.WscM7Profile;
+    UCHAR               *pTmp;
+    USHORT              Idx = 0, tmpVal = 0;
+#endif /* CONFIG_STA_SUPPORT */
 	USHORT	WscType, WscLen, HmacLen;
 	PUCHAR	pData;
 	UCHAR	Hmac[8], Temp[32];
@@ -243,6 +249,53 @@ static VOID	WscParseEncrSettings(
 				NdisMoveMemory(Hmac, pData, WscLen);
 				break;
 
+#ifdef CONFIG_STA_SUPPORT
+            /* */
+			/* Parse AP Settings in M7 if the peer is configured AP. */
+			/* */
+			case WSC_ID_SSID:
+				/* Find the exact length of SSID without null terminator */
+				pTmp = pData;
+				for (Idx = 0; Idx < WscLen; Idx++)
+				{
+					if (*(pTmp++) == 0x0)
+						break;
+				}
+				pProfile->Profile[0].SSID.SsidLength = Idx;
+				RTMPZeroMemory(pProfile->Profile[0].SSID.Ssid, NDIS_802_11_LENGTH_SSID);
+				RTMPMoveMemory(pProfile->Profile[0].SSID.Ssid, pData, pProfile->Profile[0].SSID.SsidLength);
+				/* Svae the total number, always get the first profile */
+				pProfile->ProfileCnt = 1;
+				break;
+
+			case WSC_ID_MAC_ADDR:
+				if (!MAC_ADDR_EQUAL(pData, pAdapter->StaCfg.WscControl.RegData.SelfInfo.MacAddr))
+					MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("WscParseEncrSettings --> Enrollee macAddr not match\n"));
+				RTMPMoveMemory(pProfile->Profile[0].MacAddr, pData, 6);				
+				break;
+						
+			case WSC_ID_AUTH_TYPE:
+				tmpVal = get_unaligned((PUSHORT) pData);
+				pProfile->Profile[0].AuthType = cpu2be16(tmpVal);/*cpu2be16(*((PUSHORT) pData)); */
+				break;
+								
+			case WSC_ID_ENCR_TYPE:
+				tmpVal = get_unaligned((PUSHORT) pData);
+				pProfile->Profile[0].EncrType = cpu2be16(tmpVal);/*cpu2be16(*((PUSHORT) pData)); */
+				break;
+
+			case WSC_ID_NW_KEY_INDEX:
+                /* Netork Key Index: 1 ~ 4 */
+				pProfile->Profile[0].KeyIndex = (*pData);
+				break;
+			
+			case WSC_ID_NW_KEY:
+				if (WscLen == 0)
+					break;
+				pProfile->Profile[0].KeyLength = WscLen;
+				RTMPMoveMemory(pProfile->Profile[0].Key, pData, pProfile->Profile[0].KeyLength);
+				break;
+#endif /* CONFIG_STA_SUPPORT */
 
 			default:
 				MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("WscParseEncrSettings --> Unknown IE 0x%04x\n", WscType));
@@ -630,6 +683,10 @@ int BuildMessageM1(
 		CurOpMode = AP_MODE;
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAdapter)
+		CurOpMode = STA_MODE;
+#endif /* CONFIG_STA_SUPPORT */
     
 	// Enrollee 16 byte E-S1 generation
     for (idx = 0; idx < 16; idx++)
@@ -2007,6 +2064,10 @@ int BuildMessageM7(
 		CurOpMode = AP_MODE;
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+    IF_DEV_CONFIG_OPMODE_ON_STA(pAdapter)
+		CurOpMode = STA_MODE;
+#endif /* CONFIG_AP_SUPPORT */
 
 	/* 1. Version */
 	templen = AppendWSCTLV(WSC_ID_VERSION, pData, &pReg->SelfInfo.Version, 0);
@@ -2197,6 +2258,10 @@ int BuildMessageM8(
 		CurOpMode = AP_MODE;
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+    IF_DEV_CONFIG_OPMODE_ON_STA(pAdapter)
+		CurOpMode = STA_MODE;
+#endif /* CONFIG_AP_SUPPORT */
 
 	/* 1. Version */
 	templen = AppendWSCTLV(WSC_ID_VERSION, pData, &pReg->SelfInfo.Version, 0);
@@ -2222,6 +2287,26 @@ int BuildMessageM8(
 	}
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+	if (CurOpMode == STA_MODE)
+	 {
+		if (pAdapter->StaCfg.WscControl.WscProfile.ProfileCnt == 0 || 
+			(pAdapter->StaCfg.WscControl.bConfiguredAP 
+#ifdef WSC_V2_SUPPORT
+			/* 
+				Check AP is v2 or v1, Check WscV2 Enabled or not
+			*/
+			&& !(pWscControl->WscV2Info.bForceSetAP 
+				&& pWscControl->WscV2Info.bEnableWpsV2 
+				&& (pWscControl->RegData.PeerInfo.Version2!= 0))
+#endif /* WSC_V2_SUPPORT */
+			 ))
+			WscCreateProfileFromCfg(pAdapter, STA_MODE, pWscControl, &pWscControl->WscProfile);
+
+		pCredential = &pAdapter->StaCfg.WscControl.WscProfile.Profile[0];
+		NdisMoveMemory(pCredential->MacAddr, pAdapter->MlmeAux.Bssid, 6);
+	}	
+#endif /* CONFIG_STA_SUPPORT */
 
 	/* 4a. Encrypted R-S1 */
 	CerLen += AppendWSCTLV(WSC_ID_NW_INDEX, &TB[0], (PUCHAR)"1", 0);
@@ -2256,7 +2341,19 @@ int BuildMessageM8(
 	CerLen += AppendWSCTLV(WSC_ID_MAC_ADDR, &TB[CerLen], pCredential->MacAddr, 0);
 
 	/*    Prepare plain text */
+#ifdef CONFIG_STA_SUPPORT
+	if ((CurOpMode == STA_MODE) && (pAdapter->StaCfg.BssType == BSS_INFRA))
+	 {
+		/* If Enrollee is AP, CREDENTIAL isn't needed in M8. */
+		PlainLen = CerLen;
+		NdisMoveMemory(Plain, TB, CerLen);
+	 }
+	else
+#endif /* CONFIG_STA_SUPPORT */
 	 if ((CurOpMode == AP_MODE)
+#ifdef CONFIG_STA_SUPPORT
+	 	 || ((CurOpMode == STA_MODE) && (pAdapter->StaCfg.BssType == BSS_ADHOC))
+#endif /* CONFIG_STA_SUPPORT */
 	 	)
 	 {
 	 	/* Reguired attribute item in M8 if Enrollee is STA. */
@@ -2558,6 +2655,11 @@ int ProcessMessageM1(
 //		CurOpMode = AP_MODE;
 //#endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+    UCHAR                           CurOpMode = 0xFF;
+    IF_DEV_CONFIG_OPMODE_ON_STA(pAdapter)
+		CurOpMode = STA_MODE;
+#endif /* CONFIG_STA_SUPPORT */
 
 	pReg->PeerInfo.Version2 = 0;
 #ifdef WSC_NFC_SUPPORT
@@ -2703,6 +2805,13 @@ int ProcessMessageM1(
 				
 			case WSC_ID_SC_STATE:
 				pReg->PeerInfo.ScState = get_unaligned((PUSHORT) pData);/**((PUSHORT) pData); */
+#ifdef CONFIG_STA_SUPPORT
+				if (CurOpMode == STA_MODE)
+				{
+					/* Don't overwrite the credential of M7 received from AP when this flag is TRUE in registrar mode! */
+					pWscControl->bConfiguredAP = (pReg->PeerInfo.ScState == WSC_SCSTATE_CONFIGURED) ? TRUE:FALSE;
+				}
+#endif /* CONFIG_STA_SUPPORT */
 				FieldCheck[(WSC_TLV_BYTE2(WSC_ID_SC_STATE))] ^= (1 << WSC_TLV_BYTE1(WSC_ID_SC_STATE));
 				break;
 				
@@ -4087,6 +4196,13 @@ int ProcessMessageM7(
                 AES_CBC_Decrypt(IV_DecrData + 16, (WscLen - 16),pReg->KeyWrapKey,sizeof(pReg->KeyWrapKey),IV_DecrData, 16, (UINT8 *) pReg->ApEncrSettings, (UINT *) &EncrLen);                 
 				MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("M7 ApEncrSettings len = %d\n ", EncrLen));
 
+#ifdef CONFIG_STA_SUPPORT
+				IF_DEV_CONFIG_OPMODE_ON_STA(pAdapter)
+				{
+					/* Cleanup Old M7 Profile contents */
+					RTMPZeroMemory(&pAdapter->StaCfg.WscControl.WscM7Profile, sizeof(WSC_PROFILE));
+				}
+#endif /* CONFIG_STA_SUPPORT */
 
 				/* Parse encryption settings */
 				WscParseEncrSettings(pAdapter, pReg->ApEncrSettings, EncrLen, pWscControl);

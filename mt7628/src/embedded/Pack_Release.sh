@@ -33,7 +33,7 @@ package_name=$module_name\_$release_version\_$release_date
 
 	#cp -a $BaseCodeDir/$dir_ap ./
 	mv $dir_main/embedded/$dir_ap ./
-	#mv $dir_main/embedded/$dir_sta ./
+	mv $dir_main/embedded/$dir_sta ./
 
 	### Creat dir_ap ###
 	#if [ -d $dir_ap ]; then
@@ -54,10 +54,10 @@ package_name=$module_name\_$release_version\_$release_date
 		exit 1
 	fi
 
-	#if [ ! -d $dir_sta ]; then
-	#	echo "Error! [$dir_sta] doesn't exist."
-	#	exit 1
-	#fi
+	if [ ! -d $dir_sta ]; then
+		echo "Error! [$dir_sta] doesn't exist."
+		exit 1
+	fi
 
 	if [ "$1" == "auto_build" ]; then
 		if [ -d ../$dir_main\_auto_build ]; then
@@ -66,19 +66,20 @@ package_name=$module_name\_$release_version\_$release_date
 		if [ -d ../$dir_ap\_auto_build ]; then
 			rm -rf 	../$dir_ap\_auto_build
 		fi
-		#if [ -d ../$dir_sta\_auto_build ]; then
-		#	rm -rf 	../$dir_sta\_auto_build
-		#fi
+		if [ -d ../$dir_sta\_auto_build ]; then
+			rm -rf 	../$dir_sta\_auto_build
+		fi
 		mv $dir_main ../$dir_main\_auto_build
 		mv $dir_ap ../$dir_ap\_auto_build
-		#mv $dir_ap ../$dir_sta\_auto_build
+		mv $dir_sta ../$dir_sta\_auto_build
 		cd ../../
 		#rm -rf release 
 	else
 		rm $dir_main/embedded/auto_build.sh
 		rm $dir_main/embedded/auto_build_7628_7612.sh
-		tar -jcvf  $package_name\.tar.bz2 $dir_main $dir_ap
-		#tar -jcvf  $package_name\.tar.bz2 $dir_main $dir_ap $dir_sta
+		rm $dir_main/embedded/auto_build_7628_7610.sh
+		#tar -jcvf  $package_name\.tar.bz2 $dir_main $dir_ap
+		tar -jcvf  $package_name\.tar.bz2 $dir_main $dir_ap $dir_sta
 		#rm -rf $dir_main $dir_ap $dir_sta
 	fi
 

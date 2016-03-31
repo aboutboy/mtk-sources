@@ -274,16 +274,28 @@ BOOLEAN CFG80211_HandleP2pMgmtFrame(RTMP_ADAPTER *pAd, RX_BLK *pRxBlk, UCHAR OpM
 			}
 #endif /* RT_CFG80211_P2P_CONCURRENT_DEVICE */
 
-			if ( ((pHeader->FC.SubType == SUBTYPE_PROBE_REQ) &&
-                 (pCfg80211_ctrl->cfg80211MainDev.Cfg80211RegisterProbeReqFrame == TRUE) ) ||
-			     ((pHeader->FC.SubType == SUBTYPE_ACTION)  /*&& ( pAd->Cfg80211RegisterActionFrame == TRUE)*/ ))
-			{
+			if ( ((pHeader->FC.SubType == SUBTYPE_PROBE_REQ)  
+                 && (pCfg80211_ctrl->cfg80211MainDev.Cfg80211RegisterProbeReqFrame == TRUE) 
+                 ) 
+                 || ((pHeader->FC.SubType == SUBTYPE_ACTION)  /*&& ( pAd->Cfg80211RegisterActionFrame == TRUE)*/ ))
+			{	 
 				MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_INFO,("MAIN STA RtmpOsCFG80211RxMgmt OK!! TYPE = %d, freq = %d, %02x:%02x:%02x:%02x:%02x:%02x\n",
 										pHeader->FC.SubType, freq, PRINT_MAC(pHeader->Addr2)));
-				CFG80211OS_RxMgmt(CFG80211_GetEventDevice(pAd), freq, (PUCHAR)pHeader, MPDUtotalByteCnt);
-
-				if (OpMode == OPMODE_AP)
-						return TRUE;
+#ifdef RT_CFG80211_P2P_CONCURRENT_DEVICE
+				if (pAd->cfg80211_ctrl.dummy_p2p_net_dev == NULL) //Fix crash problem when hostapd boot up.
+				{
+					DBGPRINT(RT_DEBUG_ERROR,("pAd->dummy_p2p_net_dev is NULL!!!!!!!!!!!\n")); 
+					return FALSE;
+				}
+				else
+#endif /* RT_CFG80211_P2P_CONCURRENT_DEVICE */					
+				if (RTMP_CFG80211_HOSTAPD_ON(pAd))
+					CFG80211OS_RxMgmt(pAd->net_dev, freq, (PUCHAR)pHeader, MPDUtotalByteCnt);
+				else						
+					CFG80211OS_RxMgmt(CFG80211_GetEventDevice(pAd), freq, (PUCHAR)pHeader, MPDUtotalByteCnt);								
+				
+				if (OpMode == OPMODE_AP) 
+						return TRUE;				
 			}
 		}
 

@@ -461,6 +461,17 @@ INT cut_through_init(RTMP_ADAPTER *pAd)
 
 
 
+#ifdef CONFIG_STA_SUPPORT
+VOID ComposePsPoll(RTMP_ADAPTER *pAd)
+{
+	NdisZeroMemory(&pAd->PsPollFrame, sizeof (PSPOLL_FRAME));
+	pAd->PsPollFrame.FC.Type = FC_TYPE_CNTL;
+	pAd->PsPollFrame.FC.SubType = SUBTYPE_PS_POLL;
+	pAd->PsPollFrame.Aid = pAd->StaActive.Aid | 0xC000;
+	COPY_MAC_ADDR(pAd->PsPollFrame.Bssid, pAd->CommonCfg.Bssid);
+	COPY_MAC_ADDR(pAd->PsPollFrame.Ta, pAd->CurrentAddress);
+}
+#endif /* CONFIG_STA_SUPPORT */
 
 
 /* IRQL = DISPATCH_LEVEL */
@@ -1881,7 +1892,18 @@ PNDIS_PACKET GetPacketFromRxRing(
 	BOOLEAN bReschedule = FALSE;
 	RTMP_DMACB *pRxCell;
 	UINT8 rx_hw_hdr_len = pAd->chipCap.tx_hw_hdr_len;
+    UINT16 RxBufferSize;
+    UINT16 RxRingSize = (RxRingNo == 0) ? RX_RING_SIZE : RX1_RING_SIZE;
 
+	if (RxRingNo == 0)
+	{
+		RxBufferSize = RX_BUFFER_AGGRESIZE;
+	}
+	else
+	{
+		RxBufferSize = RX1_BUFFER_SIZE;
+	}
+		
 	pRxRing = &pAd->RxRing[RxRingNo];
 	pRxRingLock = &pAd->RxRingLock[RxRingNo];
 	RTMP_SEM_LOCK(pRxRingLock);
@@ -1900,7 +1922,7 @@ PNDIS_PACKET GetPacketFromRxRing(
 		if (pRxRing->RxDmaIdx > pRxRing->RxSwReadIdx)
 			*pRxPending = pRxRing->RxDmaIdx - pRxRing->RxSwReadIdx;
 		else
-			*pRxPending = pRxRing->RxDmaIdx + RX_RING_SIZE - pRxRing->RxSwReadIdx;
+			*pRxPending = pRxRing->RxDmaIdx + RxRingSize - pRxRing->RxSwReadIdx;
 	}
 
 	pRxCell = &pRxRing->Cell[pRxRing->RxSwReadIdx];
@@ -1949,7 +1971,7 @@ PNDIS_PACKET GetPacketFromRxRing(
 			hex_dump("Invalid Pkt content", GET_OS_PKT_DATAPTR(pRxPacket), 32);
 		}
 
-		pRxD->SDL0 = RX_BUFFER_AGGRESIZE;
+		pRxD->SDL0 = RxBufferSize;
 		pRxD->LS0 = 0;
 		pRxD->DDONE = 0;
 		bReschedule = TRUE;
@@ -1962,9 +1984,9 @@ PNDIS_PACKET GetPacketFromRxRing(
 		WriteBackToDescriptor((PUCHAR)pDestRxD, (PUCHAR)pRxD, FALSE, TYPE_RXD);
 #endif
 
-		INC_RING_INDEX(pRxRing->RxSwReadIdx, RX_RING_SIZE);
+		INC_RING_INDEX(pRxRing->RxSwReadIdx, RxRingSize);
 
-		pRxRing->RxCpuIdx = (pRxRing->RxSwReadIdx == 0) ? (RX_RING_SIZE-1) : (pRxRing->RxSwReadIdx-1);
+		pRxRing->RxCpuIdx = (pRxRing->RxSwReadIdx == 0) ? (RxRingSize-1) : (pRxRing->RxSwReadIdx-1);
 		RTMP_IO_WRITE32(pAd, pRxRing->hw_cidx_addr, pRxRing->RxCpuIdx);
 
 		goto done;
@@ -1980,16 +2002,16 @@ PNDIS_PACKET GetPacketFromRxRing(
 		struct sk_buff *skb = __skb_dequeue_tail(&pAd->rx0_recycle);
 
 		if (unlikely(skb==NULL))
-			pNewPacket = RTMP_AllocateRxPacketBuffer(pAd, ((POS_COOKIE)(pAd->OS_Cookie))->pci_dev, RX_BUFFER_AGGRESIZE, FALSE, &AllocVa, &AllocPa);
+			pNewPacket = RTMP_AllocateRxPacketBuffer(pAd, ((POS_COOKIE)(pAd->OS_Cookie))->pci_dev, pRxCell->DmaBuf.AllocSize, FALSE, &AllocVa, &AllocPa);
 		else
 		{
 			pNewPacket = OSPKT_TO_RTPKT(skb);
 			AllocVa = GET_OS_PKT_DATAPTR(pNewPacket);
-			AllocPa = PCI_MAP_SINGLE_DEV(((POS_COOKIE)(pAd->OS_Cookie))->pci_dev, AllocVa, RX_BUFFER_AGGRESIZE,  -1, RTMP_PCI_DMA_FROMDEVICE);
+			AllocPa = PCI_MAP_SINGLE_DEV(((POS_COOKIE)(pAd->OS_Cookie))->pci_dev, AllocVa, pRxCell->DmaBuf.AllocSize,  -1, RTMP_PCI_DMA_FROMDEVICE);
 		}
 	}
 #else
-	pNewPacket = RTMP_AllocateRxPacketBuffer(pAd, ((POS_COOKIE)(pAd->OS_Cookie))->pci_dev, RX_BUFFER_AGGRESIZE, FALSE, &AllocVa, &AllocPa);
+	pNewPacket = RTMP_AllocateRxPacketBuffer(pAd, ((POS_COOKIE)(pAd->OS_Cookie))->pci_dev, pRxCell->DmaBuf.AllocSize, FALSE, &AllocVa, &AllocPa);
 #endif /* WLAN_SKB_RECYCLE */
 
 	if (pNewPacket && !pAd->RxReset)
@@ -2030,7 +2052,7 @@ PNDIS_PACKET GetPacketFromRxRing(
 			pRxBlk->pHeader = (HEADER_802_11 *)(pRxBlk->pData);
 		}
 
-		pRxCell->DmaBuf.AllocSize = RX_BUFFER_AGGRESIZE;
+		pRxCell->DmaBuf.AllocSize = RxBufferSize;
 		pRxCell->pNdisPacket = (PNDIS_PACKET)pNewPacket;
 		pRxCell->DmaBuf.AllocVa = AllocVa;
 		pRxCell->DmaBuf.AllocPa = AllocPa;
@@ -2039,8 +2061,8 @@ PNDIS_PACKET GetPacketFromRxRing(
 		RTMP_DCACHE_FLUSH(pRxCell->DmaBuf.AllocPa, pRxCell->DmaBuf.AllocSize);
 
 		/* update SDP0 to new buffer of rx packet */
-		pRxD->SDP0 = AllocPa;
-		pRxD->SDL0 = RX_BUFFER_AGGRESIZE;
+		pRxD->SDP0 = pRxCell->DmaBuf.AllocPa;
+		pRxD->SDL0 = RxBufferSize;
 	}
 	else
 	{
@@ -2055,9 +2077,12 @@ PNDIS_PACKET GetPacketFromRxRing(
 		{
 			pAd->RxReset = 0;
 			pAd->RxResetDropCount = 0;
+#ifdef MT_PS
+			MtPsRecovery(pAd);
+#endif /* MT_PS */
 		}
 
-		pRxD->SDL0 = RX_BUFFER_AGGRESIZE;
+		pRxD->SDL0 = RxBufferSize;
 		pRxPacket = NULL;
 		bReschedule = TRUE;
 	}
@@ -2073,9 +2098,9 @@ PNDIS_PACKET GetPacketFromRxRing(
 	WriteBackToDescriptor((PUCHAR)pDestRxD, (PUCHAR)pRxD, FALSE, TYPE_RXD);
 #endif
 
-	INC_RING_INDEX(pRxRing->RxSwReadIdx, RX_RING_SIZE);
+	INC_RING_INDEX(pRxRing->RxSwReadIdx, RxRingSize);
 
-	pRxRing->RxCpuIdx = (pRxRing->RxSwReadIdx == 0) ? (RX_RING_SIZE-1) : (pRxRing->RxSwReadIdx-1);
+	pRxRing->RxCpuIdx = (pRxRing->RxSwReadIdx == 0) ? (RxRingSize-1) : (pRxRing->RxSwReadIdx-1);
 	RTMP_IO_WRITE32(pAd, pRxRing->hw_cidx_addr, pRxRing->RxCpuIdx);
 
 #else /* CACHE_LINE_32B */
@@ -2122,25 +2147,25 @@ PNDIS_PACKET GetPacketFromRxRing(
 		RTMP_DCACHE_FLUSH(pRxCellLast->AllocPa, 32); /* use RXD_SIZE should be OK */
 
 		/* update SW read and CPU index */
-		INC_RING_INDEX(pRxRing->RxSwReadIdx, RX_RING_SIZE);
-		pRxRing->RxCpuIdx = (pRxRing->RxSwReadIdx == 0) ? (RX_RING_SIZE-1) : (pRxRing->RxSwReadIdx-1);
+		INC_RING_INDEX(pRxRing->RxSwReadIdx, RxRingSize);
+		pRxRing->RxCpuIdx = (pRxRing->RxSwReadIdx == 0) ? (RxRingSize-1) : (pRxRing->RxSwReadIdx-1);
 		RTMP_IO_WRITE32(pAd, pRxRing->hw_cidx_addr, pRxRing->RxCpuIdx);
 	}
 	else
 	{
 		/* 32B-align */
 		/* do not set DDONE bit and backup it */
-		if (pRxRing->RxSwReadIdx >= (RX_RING_SIZE-1))
+		if (pRxRing->RxSwReadIdx >= (RxRingSize - 1))
 		{
 			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR,
-					("Please change RX_RING_SIZE to mutiple of 2!\n"));
+					("Please change RxRingSize(%d) to mutiple of 2!\n"), RxRingSize);
 
 			/* flush cache from current BD */
 			RTMP_DCACHE_FLUSH(pRxCell->AllocPa, RXD_SIZE);
 
 			/* update SW read and CPU index */
-			INC_RING_INDEX(pRxRing->RxSwReadIdx, RX_RING_SIZE);
-			pRxRing->RxCpuIdx = (pRxRing->RxSwReadIdx == 0) ? (RX_RING_SIZE-1) : (pRxRing->RxSwReadIdx-1);
+			INC_RING_INDEX(pRxRing->RxSwReadIdx, RxRingSize);
+			pRxRing->RxCpuIdx = (pRxRing->RxSwReadIdx == 0) ? (RxRingSize-1) : (pRxRing->RxSwReadIdx-1);
 			RTMP_IO_WRITE32(pAd, pRxRing->hw_cidx_addr, pRxRing->RxCpuIdx);
 		}
 		else
@@ -2150,7 +2175,7 @@ PNDIS_PACKET GetPacketFromRxRing(
 			pRxCell->LastBDInfo = *pRxD;
 
 			/* update CPU index */
-			INC_RING_INDEX(pRxRing->RxSwReadIdx, RX_RING_SIZE);
+			INC_RING_INDEX(pRxRing->RxSwReadIdx, RxRingSize);
 		}
 	}
 #endif /* CACHE_LINE_32B */
@@ -2158,6 +2183,7 @@ PNDIS_PACKET GetPacketFromRxRing(
 done:
 	RTMP_SEM_UNLOCK(pRxRingLock);
 	*pbReschedule = bReschedule;
+
 	return pRxPacket;
 }
 
@@ -2212,6 +2238,15 @@ NDIS_STATUS MlmeHardTransmitTxRing(RTMP_ADAPTER *pAd, UCHAR QueIdx, PNDIS_PACKET
 		return NDIS_STATUS_FAILURE;
 	}
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		/* outgoing frame always wakeup PHY to prevent frame lost*/
+		/* if (pAd->StaCfg.Psm == PWR_SAVE)*/
+		if (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_DOZE))
+			AsicForceWakeup(pAd, TRUE);
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef MT_MAC
 	frm_buf = pSrcBufVA;
@@ -2250,6 +2285,17 @@ NDIS_STATUS MlmeHardTransmitTxRing(RTMP_ADAPTER *pAd, UCHAR QueIdx, PNDIS_PACKET
 	*/
 
 	/* In WMM-UAPSD, mlme frame should be set psm as power saving but probe request frame */
+#ifdef CONFIG_STA_SUPPORT
+	/* Data-Null packets alse pass through MMRequest in RT2860, however, we hope control the psm bit to pass APSD*/
+	if (pHeader_802_11->FC.Type != FC_TYPE_DATA)
+	{
+		if ((pHeader_802_11->FC.SubType == SUBTYPE_PROBE_REQ) ||
+			!(pAd->StaCfg.wdev.UapsdInfo.bAPSDCapable && pAd->CommonCfg.APEdcaParm.bAPSDCapable))
+			pHeader_802_11->FC.PwrMgmt = PWR_ACTIVE;
+		else
+			pHeader_802_11->FC.PwrMgmt = pAd->CommonCfg.bAPSDForcePowerSave;
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 	bInsertTimestamp = FALSE;
 
@@ -2264,10 +2310,6 @@ NDIS_STATUS MlmeHardTransmitTxRing(RTMP_ADAPTER *pAd, UCHAR QueIdx, PNDIS_PACKET
 		{
 			bAckRequired = FALSE;
 		}
-#ifdef VHT_TXBF_SUPPORT
-		if (pHeader_802_11->FC.SubType == SUBTYPE_VHT_NDPA)
-			pHeader_802_11->Duration = RTMPCalcDuration(pAd, MlmeRate, (SrcBufLen - TXINFO_SIZE - pAd->chipCap.TXWISize - TSO_SIZE));
-#endif /* VHT_TXBF_SUPPORT*/
 	}
 	else /* FC_TYPE_MGMT or FC_TYPE_DATA(must be NULL frame)*/
 	{
@@ -2459,17 +2501,6 @@ NDIS_STATUS MlmeHardTransmitTxRing(RTMP_ADAPTER *pAd, UCHAR QueIdx, PNDIS_PACKET
 #endif
 #endif
 	
-#ifdef VHT_TXBF_SUPPORT
-	if (pHeader_802_11->FC.Type == FC_TYPE_CNTL && pHeader_802_11->FC.SubType == SUBTYPE_VHT_NDPA)
-	{
-		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s(): Send VhtNDPA to peer(wcid=%d, pMacEntry=%p) with dataRate(PhyMode:%s, BW:%sHz, %dSS, MCS%d)\n",
-					__FUNCTION__, wcid, pMacEntry, get_phymode_str(transmit->field.MODE),
-					get_bw_str(transmit->field.BW),
-					(transmit->field.MCS>>4) + 1, (transmit->field.MCS & 0xf)));
-
-		hex_dump("VHT NDPA frame raw data", pSrcBufVA, SrcBufLen);
-	}
-#endif /* VHT_TXBF_SUPPORT */
 
 #ifdef RT_BIG_ENDIAN
 	RTMPFrameEndianChange(pAd, (PUCHAR)pHeader_802_11, DIR_WRITE, FALSE);
@@ -2817,6 +2848,9 @@ VOID RTMPHandleBcnDmaDoneInterrupt(RTMP_ADAPTER *pAd)
 		WriteBackToDescriptor((PUCHAR)pDestTxD, (PUCHAR)pTxD, TRUE, TYPE_TXD);
 #endif
 
+#ifdef CONFIG_STA_SUPPORT
+		// TODO: shiang-MT7603, beacon in STA mode!
+#endif /* CONFIG_STA_SUPPORT */
 	}
 
 	RTMP_SEM_UNLOCK(&pAd->BcnRingLock);

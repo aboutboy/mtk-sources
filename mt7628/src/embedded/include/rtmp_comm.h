@@ -23,6 +23,9 @@
     
 /*#define MONITOR_FLAG_11N_SNIFFER_SUPPORT */
     
+#ifdef CONFIG_STA_SUPPORT
+/*#define AGS_SUPPORT */
+#endif	/* CONFIG_STA_SUPPORT */
     
 #ifdef VENDOR_FEATURE3_SUPPORT 
 #ifndef BB_SOC
@@ -62,11 +65,7 @@
 	14 channels @2.4G +  12@UNII(lower/middle) + 16@HiperLAN2 + 11@UNII(upper) + 0 @Japan + 1 as NULL termination
 	Refer to CH_HZ_ID_MAP[] in rt_channel.c
 */
-#ifdef DOT11_VHT_AC
-#define MAX_NUM_OF_CHS             		(54 + 5)	/* 5 channels for central channel of VHT 80MHz */
-#else
 #define MAX_NUM_OF_CHS             		54
-#endif /* DOT11_VHT_AC*/
 /* 14 channels @2.4G +  12@UNII + 4 @MMAC + 11 @HiperLAN2 + 7 @Japan + 1 as NULL termination */
 #define MAX_NUM_OF_CHANNELS             MAX_NUM_OF_CHS
 #define MAX_NUM_OF_SUB_CHANNELS			MAX_NUM_OF_CHANNELS/2  /*Assume half size for sub channels*/
@@ -147,7 +146,12 @@ typedef enum{
 	DBG_CAT_ALL		= 0xFFFFFFFF,
 }DEBUG_CATEGORY;
 
-#define DBG_SUBCAT_ALL	0xFFFFFFFF
+/* Debug Sub Category */
+typedef enum{
+	DBG_SUBCAT_BNDSTRG	= 0x00000100,	/* Band Steering */
+	DBG_SUBCAT_ALL		= 0xFFFFFFFF,
+}DEBUG_SUB_CATEGORY;
+
 
 
 /* ======================== Definition ====================================== */ 

@@ -2072,29 +2072,6 @@ static VOID ChannelSelectOnRadarDetection(
 	if (pAd->Dot11_H.RDMode == RD_SWITCHING_MODE)
 		return;
 	
-#ifdef DOT11_VHT_AC
-	if (pAd->CommonCfg.BBPCurrentBW == BW_80)
-	{
-		for (i=0; i<pAd->ChannelListNum; i++)
-		{
-			if ((pAd->CommonCfg.Channel >= 52 && pAd->CommonCfg.Channel <= 64) &&
-				(pAd->ChannelList[i].Channel >= 52 && pAd->ChannelList[i].Channel <= 64))
-			{
-				pAd->ChannelList[i].RemainingTimeForUse = 1800;
-			}
-			else if ((pAd->CommonCfg.Channel >= 100 && pAd->CommonCfg.Channel <= 112) &&
-				(pAd->ChannelList[i].Channel >= 100 && pAd->ChannelList[i].Channel <= 112))
-			{
-				pAd->ChannelList[i].RemainingTimeForUse = 1800;
-			}
-			else if ((pAd->CommonCfg.Channel >= 116 && pAd->CommonCfg.Channel <= 128) &&
-				(pAd->ChannelList[i].Channel >= 116 && pAd->ChannelList[i].Channel <= 128))
-			{
-				pAd->ChannelList[i].RemainingTimeForUse = 1800;
-			}
-		}
-	}
-#endif /* DOT11_VHT_AC */
 
 	for (i=0; i<pAd->ChannelListNum; i++)
 	{

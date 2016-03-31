@@ -1077,6 +1077,9 @@ NDIS_STATUS IgmpPktClone(
 
 			OS_PKT_CLONE(pAd, pPacket, pSkbClone, MEM_ALLOC_FLAG);
 			if ((pSkbClone)
+#ifdef DOT11V_WNM_SUPPORT
+				&& (pMacEntry->Beclone == FALSE)
+#endif /* DOT11V_WNM_SUPPORT */
 			)
 			{
 				RTMP_SET_PACKET_WCID(pSkbClone, (UCHAR)pMacEntry->Aid);
@@ -1183,6 +1186,9 @@ NDIS_STATUS IgmpPktClone(
 				else
 					bContinue = FALSE;	
 
+#ifdef DOT11V_WNM_SUPPORT
+				pMacEntry->Beclone = FALSE;
+#endif /* DOT11V_WNM_SUPPORT */
 				continue;
 			}
 

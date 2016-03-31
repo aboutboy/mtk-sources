@@ -534,6 +534,9 @@ static VOID ApCliPeerDeauthAction(RTMP_ADAPTER *pAd, MLME_QUEUE_ELEM *Elem)
 	USHORT      Reason;
 	USHORT ifIndex = (USHORT)(Elem->Priv);
 	PULONG pCurrState = NULL;
+#ifdef WPA_SUPPLICANT_SUPPORT
+	PMAC_TABLE_ENTRY pMacEntry = NULL;
+#endif /*WPA_SUPPLICANT_SUPPORT*/
 #ifdef MAC_REPEATER_SUPPORT
 	UCHAR CliIdx = 0xFF;
 #endif /* MAC_REPEATER_SUPPORT */
@@ -556,12 +559,28 @@ static VOID ApCliPeerDeauthAction(RTMP_ADAPTER *pAd, MLME_QUEUE_ELEM *Elem)
 #endif /* MAC_REPEATER_SUPPORT */
 		pCurrState = &pAd->ApCfg.ApCliTab[ifIndex].AuthCurrState;
 
+#ifdef WPA_SUPPLICANT_SUPPORT
+	pMacEntry = &pAd->MacTab.Content[pAd->ApCfg.ApCliTab[ifIndex].MacTabWCID];
+	if (!pMacEntry || !IS_ENTRY_APCLI(pMacEntry))
+	{
+		return;
+	}
+#endif /*WPA_SUPPLICANT_SUPPORT*/
 
 	if (PeerDeauthSanity(pAd, Elem->Msg, Elem->MsgLen, Addr1, Addr2, Addr3, &Reason))
 	{
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("APCLI AUTH_RSP - receive DE-AUTH from our AP\n"));
 		*pCurrState = APCLI_AUTH_REQ_IDLE;
 
+#ifdef WPA_SUPPLICANT_SUPPORT
+			STA_TR_ENTRY *tr_entry = &pAd->MacTab.tr_entry[pAd->ApCfg.ApCliTab[ifIndex].MacTabWCID];
+			if ((pAd->ApCfg.ApCliTab[ifIndex].wpa_supplicant_info.WpaSupplicantUP != WPA_SUPPLICANT_DISABLE) &&
+				(pAd->ApCfg.ApCliTab[ifIndex].wdev.AuthMode == Ndis802_11AuthModeWPA2)
+				&&(tr_entry->PortSecured == WPA_802_1X_PORT_SECURED))
+				{
+					pAd->ApCfg.ApCliTab[ifIndex].wpa_supplicant_info.bLostAp = TRUE;
+				}
+#endif /*WPA_SUPPLICANT_SUPPORT*/
 
 #ifdef MAC_REPEATER_SUPPORT
 		ifIndex = (USHORT)(Elem->Priv);
@@ -573,7 +592,7 @@ static VOID ApCliPeerDeauthAction(RTMP_ADAPTER *pAd, MLME_QUEUE_ELEM *Elem)
 		{
 			RTMP_MLME_HANDLER(pAd);
 			ifIndex = ((ifIndex - 64) / 16);
-			RTMPRemoveRepeaterEntry(pAd, ifIndex, CliIdx);
+			//RTMPRemoveRepeaterEntry(pAd, ifIndex, CliIdx);
 		}
 #endif /* MAC_REPEATER_SUPPORT */
 	}

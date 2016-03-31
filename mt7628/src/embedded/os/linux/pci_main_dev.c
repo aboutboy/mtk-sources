@@ -316,6 +316,16 @@ static int DEVINIT rt_pci_probe(struct pci_dev *pdev, const struct pci_device_id
 	net_dev->base_addr = csr_addr;		/* Save CSR virtual address and irq to device structure */
 	pci_set_drvdata(pdev, net_dev);	/* Set driver data */
 	
+#ifdef NATIVE_WPA_SUPPLICANT_SUPPORT
+/* for supporting Network Manager */
+	/*
+		Set the sysfs physical device reference for the network logical device
+		if set prior to registration will cause a symlink during initialization.
+	*/
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0))
+	SET_NETDEV_DEV(net_dev, &(pdev->dev));
+#endif
+#endif /* NATIVE_WPA_SUPPLICANT_SUPPORT */
 
 /*All done, it's time to register the net device to linux kernel. */
 	/* Register this device */
@@ -340,6 +350,10 @@ static int DEVINIT rt_pci_probe(struct pci_dev *pdev, const struct pci_device_id
 	if (rv)
 		goto err_out_free_netdev;
 
+#ifdef CONFIG_STA_SUPPORT
+/*	pAd->StaCfg.OriDevType = net_dev->type; */
+	RTMP_DRIVER_STA_DEV_TYPE_SET(pAd, net_dev->type);
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef PRE_ASSIGN_MAC_ADDR
 {
@@ -484,6 +498,11 @@ void __exit rt_pci_cleanup_module(void)
 module_init(rt_pci_init_module);
 module_exit(rt_pci_cleanup_module);
 
+#ifdef CONFIG_STA_SUPPORT
+#ifdef MODULE_VERSION
+MODULE_VERSION(STA_DRIVER_VERSION);
+#endif
+#endif /* CONFIG_STA_SUPPORT */
 
 #endif /* MULTI_INF_SUPPORT */
 

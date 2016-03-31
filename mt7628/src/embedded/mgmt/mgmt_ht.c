@@ -360,12 +360,6 @@ VOID RTMPSetHT(
 		bw = BW_20;
 	}
 
-#ifdef DOT11_VHT_AC
-	if (pHTPhyMode->BW == BW_40 &&
-		pAd->CommonCfg.vht_bw == VHT_BW_80 && 
-		pAd->CommonCfg.vht_cent_ch)
-		bw = BW_80;
-#endif /* DOT11_VHT_AC */
 
 #ifdef CONFIG_MULTI_CHANNEL
 #if defined(RT_CFG80211_SUPPORT) && defined(CONFIG_AP_SUPPORT)
@@ -467,6 +461,18 @@ VOID RTMPSetHT(
 	}
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+
+#ifdef RT_CFG80211_P2P_SUPPORT
+		for (apidx = 0; apidx < pAd->ApCfg.BssidNum; apidx++)
+			RTMPSetIndividualHT(pAd, apidx + MIN_NET_DEVICE_FOR_CFG80211_VIF_P2P_GO);
+#endif /* RT_CFG80211_P2P_SUPPORT */
+
+		RTMPSetIndividualHT(pAd, 0);
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 }
 
@@ -558,16 +564,6 @@ VOID RTMPSetIndividualHT(RTMP_ADAPTER *pAd, UCHAR apidx)
 
 				pDesired_ht_phy = &wdev->DesiredHtPhyInfo;
 				DesiredMcs = wdev->DesiredTransmitSetting.field.MCS;
-#ifdef WFA_VHT_PF
-				// TODO: Sigma, this code segment used to work around for Sigma Automation!
-				if (WMODE_CAP_AC(pAd->CommonCfg.PhyMode) && (DesiredMcs != MCS_AUTO)) {
-					DesiredMcs += ((TxStream - 1) << 4);
-					pAd->ApCfg.MBSSID[apidx].DesiredTransmitSetting.field.FixedTxMode = FIXED_TXMODE_VHT;
-					RT_CfgSetAutoFallBack(pAd, "0");
-				} else {
-					RT_CfgSetAutoFallBack(pAd, "1");
-				}
-#endif /* WFA_VHT_PF */
 				encrypt_mode = wdev->WepStatus;
 				pAd->ApCfg.MBSSID[apidx].wdev.bWmmCapable = TRUE;
 				wdev->bAutoTxRateSwitch = (DesiredMcs == MCS_AUTO) ? TRUE : FALSE;
@@ -579,6 +575,17 @@ VOID RTMPSetIndividualHT(RTMP_ADAPTER *pAd, UCHAR apidx)
 		}			
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+		IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+		{
+			wdev = &pAd->StaCfg.wdev;
+			
+			pDesired_ht_phy = &wdev->DesiredHtPhyInfo;					
+			DesiredMcs = wdev->DesiredTransmitSetting.field.MCS;
+			encrypt_mode = wdev->WepStatus;
+			break;
+		}	
+#endif /* CONFIG_STA_SUPPORT */
 	} while (FALSE);
 
 	if (pDesired_ht_phy == NULL)
@@ -602,12 +609,20 @@ VOID RTMPSetIndividualHT(RTMP_ADAPTER *pAd, UCHAR apidx)
 		DesiredMcs = MCS_0;		
 	}
 	   		
+#ifdef CONFIG_STA_SUPPORT
+	if ((pAd->OpMode == OPMODE_STA) && (pAd->StaCfg.BssType == BSS_INFRA) && (apidx == MIN_NET_DEVICE_FOR_MBSSID))
+		;
+	else
+#endif /* CONFIG_STA_SUPPORT */
 	/*
 		WFA recommend to restrict the encryption type in 11n-HT mode.
 	 	So, the WEP and TKIP are not allowed in HT rate. 
 	*/
 	if (pAd->CommonCfg.HT_DisallowTKIP && IS_INVALID_HT_SECURITY(encrypt_mode))
 	{
+#ifdef CONFIG_STA_SUPPORT
+		pAd->StaCfg.bAdhocN = FALSE;
+#endif /* CONFIG_STA_SUPPORT */
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_WARN, ("%s : Use legacy rate in WEP/TKIP encryption mode (apidx=%d)\n", 
 									__FUNCTION__, apidx));
 		return;
@@ -615,6 +630,9 @@ VOID RTMPSetIndividualHT(RTMP_ADAPTER *pAd, UCHAR apidx)
 
 	if (pAd->CommonCfg.HT_Disable)
 	{
+#ifdef CONFIG_STA_SUPPORT
+		pAd->StaCfg.bAdhocN = FALSE;
+#endif /* CONFIG_STA_SUPPORT */
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("%s : HT is disabled\n", __FUNCTION__));
 		return;
 	}
@@ -680,12 +698,6 @@ VOID RTMPSetIndividualHT(RTMP_ADAPTER *pAd, UCHAR apidx)
 	else
 		MlmeUpdateHtTxRates(pAd, apidx);
 
-#ifdef DOT11_VHT_AC
-	if (WMODE_CAP_AC(pAd->CommonCfg.PhyMode)) {
-		pDesired_ht_phy->bVhtEnable = TRUE;
-		rtmp_set_vht(pAd, pDesired_ht_phy);
-	}
-#endif /* DOT11_VHT_AC */
 }
 
 /*
@@ -725,6 +737,12 @@ VOID RTMPDisableDesiredHtInfo(RTMP_ADAPTER *pAd)
 	}
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		RTMPZeroMemory(&pAd->StaCfg.wdev.DesiredHtPhyInfo, sizeof(RT_PHY_INFO));
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 }
 
@@ -740,9 +758,6 @@ INT	SetCommonHT(RTMP_ADAPTER *pAd)
 		return FALSE;
 	}
 
-#ifdef DOT11_VHT_AC
-	SetCommonVHT(pAd);
-#endif /* DOT11_VHT_AC */
 
 	SetHT.PhyMode = (RT_802_11_PHY_MODE)pAd->CommonCfg.PhyMode;
 	SetHT.TransmitNo = ((UCHAR)pAd->Antenna.field.TxPath);

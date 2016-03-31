@@ -158,6 +158,13 @@ INT Set_AP_IE(
 	IN RTMP_STRING *IE,
 	IN UINT32 IELen);
 
+#ifdef CONFIG_HOTSPOT
+INT Send_ANQP_Rsp(
+	IN PRTMP_ADAPTER pAd,
+	IN RTMP_STRING *PeerMACAddr,
+	IN RTMP_STRING *ANQPReq,
+	IN UINT32 ANQPReqLen);
+#endif
 
 INT	ApCfg_Set_AuthMode_Proc(
 	IN	PRTMP_ADAPTER	pAd, 
@@ -177,6 +184,12 @@ INT Set_AP_IE(
 	IN UINT32 IELen);
 
 #ifdef APCLI_SUPPORT
+#ifdef WPA_SUPPLICANT_SUPPORT
+VOID RTMPApCliAddKey(
+	IN	PRTMP_ADAPTER	    pAd, 
+	IN 	INT				apidx,
+	IN	PNDIS_APCLI_802_11_KEY    pApcliKey);
+#endif /* WPA_SUPPLICANT_SUPPORT */
 #endif /* APCLI_SUPPORT */
 #endif /* __AP_CFG_H__ */
 

@@ -77,7 +77,7 @@ VOID ApCliSyncStateMachineInit(
 	OUT STATE_MACHINE_FUNC Trans[])
 {
 	UCHAR i;
-#ifdef APCLI_CONNECTION_TRIAL		
+#if defined( APCLI_CONNECTION_TRIAL) || defined (MULTI_APCLI_SUPPORT)		
 	PAPCLI_STRUCT	pApCliEntry;
 #endif /*APCLI_CONNECTION_TRIAL*/
 
@@ -99,10 +99,8 @@ VOID ApCliSyncStateMachineInit(
 	for (i = 0; i < MAX_APCLI_NUM; i++)
 	{
 		/* timer init */
-#ifdef APCLI_CONNECTION_TRIAL		
+#if defined(APCLI_CONNECTION_TRIAL) || defined(MULTI_APCLI_SUPPORT)		
 		pApCliEntry = &pAd->ApCfg.ApCliTab[i];
-#endif /*APCLI_CONNECTION_TRIAL*/
-#ifdef APCLI_CONNECTION_TRIAL	
 		RTMPInitTimer(pAd, &pAd->ApCfg.ApCliTab[i].MlmeAux.ProbeTimer, GET_TIMER_FUNCTION(ApCliProbeTimeout), (PVOID)pApCliEntry, FALSE);
 #else
 		RTMPInitTimer(pAd, &pAd->ApCfg.ApCliTab[i].MlmeAux.ProbeTimer, GET_TIMER_FUNCTION(ApCliProbeTimeout), pAd, FALSE);
@@ -125,7 +123,7 @@ static VOID ApCliProbeTimeout(
 	IN PVOID SystemSpecific2, 
 	IN PVOID SystemSpecific3)
 {
-#ifdef APCLI_CONNECTION_TRIAL
+#if   defined(APCLI_CONNECTION_TRIAL) || defined(MULTI_APCLI_SUPPORT)
 	PAPCLI_STRUCT pApCliEntry = (APCLI_STRUCT *)FunctionContext;
 	RTMP_ADAPTER *pAd = (RTMP_ADAPTER *)pApCliEntry->pAd;
 #else
@@ -134,10 +132,10 @@ static VOID ApCliProbeTimeout(
 
 	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("ApCli_SYNC - ProbeReqTimeout\n"));
 
-#ifndef APCLI_CONNECTION_TRIAL
-	MlmeEnqueue(pAd, APCLI_SYNC_STATE_MACHINE, APCLI_MT2_PROBE_TIMEOUT, 0, NULL, 0);
-#else
+#if defined(APCLI_CONNECTION_TRIAL)|| defined(MULTI_APCLI_SUPPORT)
 	MlmeEnqueue(pAd, APCLI_SYNC_STATE_MACHINE, APCLI_MT2_PROBE_TIMEOUT, 0, NULL, pApCliEntry->ifIndex);
+#else
+	MlmeEnqueue(pAd,APCLI_SYNC_STATE_MACHINE,APCLI_MT2_PROBE_TIMEOUT,0,NULL,0);
 #endif /* APCLI_CONNECTION_TRIAL */
 	RTMP_MLME_HANDLER(pAd);
 
@@ -726,13 +724,6 @@ static VOID ApCliEnqueueProbeRequest(
 			FrameLen += tmp;
 		}
 
-#ifdef DOT11_VHT_AC
-		if (WMODE_CAP_AC(pAd->CommonCfg.PhyMode) &&
-			(pAd->CommonCfg.Channel > 14))
-		{
-			FrameLen += build_vht_ies(pAd, (UCHAR *)(pOutBuffer + FrameLen), SUBTYPE_PROBE_REQ);
-		}
-#endif /* DOT11_VHT_AC */
 
 #if defined(RT_CFG80211_P2P_CONCURRENT_DEVICE) || defined(CFG80211_MULTI_STA)
          if ((pAd->StaCfg.wpa_supplicant_info.WpaSupplicantUP != WPA_SUPPLICANT_DISABLE) &&

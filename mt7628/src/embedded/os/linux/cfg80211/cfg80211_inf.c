@@ -81,10 +81,31 @@ BOOLEAN CFG80211DRV_OpsChgVirtualInf(RTMP_ADAPTER *pAd, VOID *pData)
 #endif /* RT_CFG80211_P2P_SINGLE_DEVICE */
 
 	/* Change Device Type */
+#ifdef CONFIG_STA_SUPPORT
+	if (newType == RT_CMD_80211_IFTYPE_ADHOC)
+	{
+#ifdef DOT11_N_SUPPORT
+		SetCommonHT(pAd);
+#endif /* DOT11_N_SUPPORT */
+		Set_NetworkType_Proc(pAd, "Adhoc");
+	}
+	else
+#endif /* CONFIG_STA_SUPPORT */
 	if ((newType == RT_CMD_80211_IFTYPE_STATION) ||
 		(newType == RT_CMD_80211_IFTYPE_P2P_CLIENT))
 	{
 		CFG80211DBG(DBG_LVL_TRACE, ("80211> Change the Interface to STA Mode\n"));
+#ifdef CONFIG_STA_SUPPORT		
+		if ((oldType == RT_CMD_80211_IFTYPE_ADHOC) && 
+             (newType == RT_CMD_80211_IFTYPE_STATION))
+		{
+			/* DeviceType Change from adhoc to infra, 
+			   only in StaCfg. 
+               CFG Todo: It should not bind by device. 
+			 */
+			pAd->StaCfg.BssType = BSS_INFRA;
+		}
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef CONFIG_AP_SUPPORT
 		if (pAd->cfg80211_ctrl.isCfgInApMode == RT_CMD_80211_IFTYPE_AP)
@@ -98,6 +119,63 @@ BOOLEAN CFG80211DRV_OpsChgVirtualInf(RTMP_ADAPTER *pAd, VOID *pData)
 		CFG80211DBG(DBG_LVL_TRACE, ("80211> Change the Interface to AP Mode\n"));
 		pAd->cfg80211_ctrl.isCfgInApMode = RT_CMD_80211_IFTYPE_AP;
 	}
+#ifdef CONFIG_STA_SUPPORT
+	else if (newType == RT_CMD_80211_IFTYPE_MONITOR)
+	{
+		/* set packet filter */
+		Set_NetworkType_Proc(pAd, "Monitor");
+
+		if (pVifParm->MonFilterFlag != 0)
+		{
+			UINT32 Filter = 0;
+
+#ifndef MT_MAC
+			if (pAd->chipCap.hif_type != HIF_MT) {
+				RTMP_IO_READ32(pAd, RX_FILTR_CFG, &Filter);
+
+				if ((pVifParm->MonFilterFlag & RT_CMD_80211_FILTER_FCSFAIL) == RT_CMD_80211_FILTER_FCSFAIL)
+				{
+					Filter = Filter & (~0x01);
+				}
+				else
+				{
+					Filter = Filter | 0x01;
+				}
+
+				if ((pVifParm->MonFilterFlag & RT_CMD_80211_FILTER_PLCPFAIL) == RT_CMD_80211_FILTER_PLCPFAIL)
+				{
+					Filter = Filter & (~0x02);
+				}
+				else
+				{
+					Filter = Filter | 0x02;
+				}
+
+				if ((pVifParm->MonFilterFlag & RT_CMD_80211_FILTER_CONTROL) == RT_CMD_80211_FILTER_CONTROL)
+				{
+					Filter = Filter & (~0xFF00);
+				}
+				else
+				{
+					Filter = Filter | 0xFF00;
+				}
+
+				if ((pVifParm->MonFilterFlag & RT_CMD_80211_FILTER_OTHER_BSS) == RT_CMD_80211_FILTER_OTHER_BSS)
+				{
+					Filter = Filter & (~0x08);
+				}
+				else
+				{
+					Filter = Filter | 0x08;
+				}
+
+				RTMP_IO_WRITE32(pAd, RX_FILTR_CFG, Filter);
+			}
+#endif /* MT_MAC */
+			pVifParm->MonFilterFlag = Filter;
+		}
+	}
+#endif /*CONFIG_STA_SUPPORT*/
 	if ((newType == RT_CMD_80211_IFTYPE_P2P_CLIENT) ||
 	   (newType == RT_CMD_80211_IFTYPE_P2P_GO))
 	{
@@ -542,6 +620,44 @@ VOID RTMP_CFG80211_VirtualIF_Init(
 
 	switch (DevType)
 	{
+#ifdef CONFIG_STA_SUPPORT
+		case RT_CMD_80211_IFTYPE_MONITOR:
+			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("CFG80211 I/F Monitor Type\n"));
+			//RTMP_OS_NETDEV_SET_TYPE_MONITOR(new_dev_p);
+			break;
+
+		case RT_CMD_80211_IFTYPE_P2P_CLIENT:
+		case RT_CMD_80211_IFTYPE_STATION:
+			pApCliEntry = &pAd->ApCfg.ApCliTab[MAIN_MBSSID];
+			wdev = &pApCliEntry->wdev;
+			wdev->wdev_type = WDEV_TYPE_STA;
+			wdev->func_dev = pApCliEntry;
+			wdev->func_idx = MAIN_MBSSID;
+			wdev->sys_handle = (void *)pAd;
+			wdev->if_dev = new_dev_p;
+			/* TX */
+			wdev->tx_pkt_allowed = ApCliAllowToSendPacket;
+			wdev->wdev_hard_tx = APHardTransmit;
+			wdev->tx_pkt_handle = APSendPacket;
+
+			/* RX */
+			wdev->rx_pkt_allowed = sta_rx_pkt_allow;
+			wdev->rx_pkt_foward = sta_rx_fwd_hnd;
+
+			RTMP_OS_NETDEV_SET_PRIV(new_dev_p, pAd);
+			RTMP_OS_NETDEV_SET_WDEV(new_dev_p, wdev);
+			if (rtmp_wdev_idx_reg(pAd, wdev) < 0)
+			{
+				DBGPRINT(RT_DEBUG_ERROR, ("%s: Assign wdev idx for %s failed, free net device!\n",
+								__FUNCTION__,RTMP_OS_NETDEV_GET_DEVNAME(new_dev_p)));
+				RtmpOSNetDevFree(new_dev_p);
+				break;
+			}
+
+			/* init MAC address of virtual network interface */
+			COPY_MAC_ADDR(wdev->if_addr, pNetDevOps->devAddr);
+			break;
+#endif /*CONFIG_STA_SUPPORT*/
 		case RT_CMD_80211_IFTYPE_P2P_GO:
 			/* Only ForceGO init from here,
 			   Nego as GO init on AddBeacon Ops.

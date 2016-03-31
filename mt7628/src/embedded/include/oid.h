@@ -89,7 +89,8 @@
 #endif /* MAC_REPEATER_SUPPORT */
 #elif defined(MT7628)
 #ifdef MAC_REPEATER_SUPPORT
-#ifdef APCLI_CONNECTION_TRIAL
+//#ifdef APCLI_CONNECTION_TRIAL
+#ifdef  MULTI_APCLI_SUPPORT
 #define MAX_NUMBER_OF_MAC				(75 - (24 + 1) * 2)
 #else
 #define MAX_NUMBER_OF_MAC				(75 - (24 + 1) * 1)
@@ -610,8 +611,36 @@ typedef struct _NDIS_AP_802_11_KEY {
 #endif /* CONFIG_AP_SUPPORT */
 
 #ifdef APCLI_SUPPORT
+#ifdef WPA_SUPPLICANT_SUPPORT
+typedef struct _NDIS_APCLI_802_11_KEY
+{
+    UINT           Length;
+    UINT           KeyIndex;
+    UINT           KeyLength;
+    NDIS_802_11_MAC_ADDRESS BSSID;
+    NDIS_802_11_KEY_RSC KeyRSC;
+    UCHAR           KeyMaterial[1];
+} NDIS_APCLI_802_11_KEY, *PNDIS_APCLI_802_11_KEY;
+#endif/* WPA_SUPPLICANT_SUPPORT */
 #endif /* APCLI_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+/* Key mapping keys require a BSSID */
+typedef struct _NDIS_802_11_KEY {
+	UINT Length;		/* Length of this structure */
+	UINT KeyIndex;
+	UINT KeyLength;		/* length of key in bytes */
+	NDIS_802_11_MAC_ADDRESS BSSID;
+	NDIS_802_11_KEY_RSC KeyRSC;
+	UCHAR KeyMaterial[1];	/* variable length depending on above field */
+} NDIS_802_11_KEY, *PNDIS_802_11_KEY;
+
+typedef struct _NDIS_802_11_PASSPHRASE {
+	UINT KeyLength;		/* length of key in bytes */
+	NDIS_802_11_MAC_ADDRESS BSSID;
+	UCHAR KeyMaterial[1];	/* variable length depending on above field */
+} NDIS_802_11_PASSPHRASE, *PNDIS_802_11_PASSPHRASE;
+#endif /* CONFIG_STA_SUPPORT */
 
 typedef struct _NDIS_802_11_REMOVE_KEY {
 	UINT Length;		/* Length of this structure */
@@ -818,9 +847,29 @@ typedef enum _NDIS_802_11_MEDIA_STREAM_MODE {
 /* PMKID Structures */
 typedef UCHAR NDIS_802_11_PMKID_VALUE[16];
 
+#if defined(CONFIG_STA_SUPPORT) || defined(WPA_SUPPLICANT_SUPPORT)
+typedef struct _BSSID_INFO {
+	NDIS_802_11_MAC_ADDRESS BSSID;
+	NDIS_802_11_PMKID_VALUE PMKID;
+} BSSID_INFO, *PBSSID_INFO;
+
+typedef struct _NDIS_802_11_PMKID {
+	UINT Length;
+	UINT BSSIDInfoCount;
+	BSSID_INFO BSSIDInfo[1];
+} NDIS_802_11_PMKID, *PNDIS_802_11_PMKID;
+#endif /* defined(CONFIG_STA_SUPPORT) || defined(WPA_SUPPLICANT_SUPPORT) */
 
 #ifdef CONFIG_AP_SUPPORT
 #ifdef APCLI_SUPPORT
+#ifdef WPA_SUPPLICANT_SUPPORT
+typedef struct _NDIS_APCLI_802_11_PMKID
+{
+    UINT    Length;
+    UINT    BSSIDInfoCount;
+    BSSID_INFO BSSIDInfo[1];
+} NDIS_APCLI_802_11_PMKID, *PNDIS_APCLI_802_11_PMKID;
+#endif/*WPA_SUPPLICANT_SUPPORT*/
 #endif /* APCLI_SUPPORT */
 
 typedef struct _AP_BSSID_INFO {
@@ -906,6 +955,18 @@ typedef struct _NDIS_802_11_CAPABILITY {
 #define RT_OID_LED_WPS_MODE10						0x0739
 #endif /* WSC_LED_SUPPORT */
 #endif /* WSC_INCLUDED */
+#ifdef CONFIG_STA_SUPPORT
+#define RT_OID_WSC_SET_PASSPHRASE                   0x0740	/* passphrase for wpa(2)-psk */
+#define RT_OID_WSC_DRIVER_AUTO_CONNECT              0x0741
+#define RT_OID_WSC_QUERY_DEFAULT_PROFILE            0x0742
+#define RT_OID_WSC_SET_CONN_BY_PROFILE_INDEX        0x0743
+#define RT_OID_WSC_SET_ACTION                       0x0744
+#define RT_OID_WSC_SET_SSID                         0x0745
+#define RT_OID_WSC_SET_PIN_CODE                     0x0746
+#define RT_OID_WSC_SET_MODE                         0x0747	/* PIN or PBC */
+#define RT_OID_WSC_SET_CONF_MODE                    0x0748	/* Enrollee or Registrar */
+#define RT_OID_WSC_SET_PROFILE                      0x0749
+#endif /* CONFIG_STA_SUPPORT */
 #ifdef CONFIG_AP_SUPPORT
 #ifdef APCLI_SUPPORT
 #define RT_OID_APCLI_WSC_PIN_CODE					0x074A
@@ -1004,39 +1065,13 @@ typedef enum _RT_802_11_PHY_MODE {
 	PHY_11AGN_MIXED = 10,	/* if check 802.11b.      10 */
 	PHY_11N_5G = 11,		/* 11n-only with 5G band                11 */
 #endif /* DOT11_N_SUPPORT */
-#ifdef DOT11_VHT_AC
-	PHY_11VHT_N_ABG_MIXED = 12, /* 12 -> AC/A/AN/B/G/GN mixed */
-	PHY_11VHT_N_AG_MIXED = 13, /* 13 -> AC/A/AN/G/GN mixed  */
-	PHY_11VHT_N_A_MIXED = 14, /* 14 -> AC/AN/A mixed in 5G band */
-	PHY_11VHT_N_MIXED = 15, /* 15 -> AC/AN mixed in 5G band */
-#endif /* DOT11_VHT_AC */
 	PHY_MODE_MAX,
 } RT_802_11_PHY_MODE;
 
-#ifdef DOT11_VHT_AC
-#define PHY_MODE_IS_5G_BAND(__Mode)	\
-	((__Mode == PHY_11A) ||			\
-	(__Mode == PHY_11ABG_MIXED) ||	\
-	(__Mode == PHY_11ABGN_MIXED) ||	\
-	(__Mode == PHY_11AN_MIXED) ||	\
-	(__Mode == PHY_11AGN_MIXED) ||	\
-	(__Mode == PHY_11N_5G) ||\
-	(__Mode == PHY_11VHT_N_MIXED) ||\
-	(__Mode == PHY_11VHT_N_A_MIXED))
-#elif defined(DOT11_N_SUPPORT)
-#define PHY_MODE_IS_5G_BAND(__Mode)	\
-	((__Mode == PHY_11A) ||			\
-	(__Mode == PHY_11ABG_MIXED) ||	\
-	(__Mode == PHY_11ABGN_MIXED) ||	\
-	(__Mode == PHY_11AN_MIXED) ||	\
-	(__Mode == PHY_11AGN_MIXED) ||	\
-	(__Mode == PHY_11N_5G))
-#else
 
 #define PHY_MODE_IS_5G_BAND(__Mode)	\
 	((__Mode == PHY_11A) ||			\
 	(__Mode == PHY_11ABG_MIXED))
-#endif /* DOT11_N_SUPPORT */
 
 /* put all proprietery for-query objects here to reduce # of Query_OID */
 typedef struct _RT_802_11_LINK_STATUS {
@@ -1215,6 +1250,32 @@ typedef struct _RT_LLTD_ASSOICATION_TABLE {
 } RT_LLTD_ASSOICATION_TABLE, *PRT_LLTD_ASSOICATION_TABLE;
 #endif /* LLTD_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+#ifdef QOS_DLS_SUPPORT
+/*rt2860, 2007-0118 */
+/* structure for DLS */
+typedef struct _RT_802_11_DLS_UI {
+	USHORT TimeOut;		/* unit: second , set by UI */
+	USHORT CountDownTimer;	/* unit: second , used by driver only */
+	NDIS_802_11_MAC_ADDRESS MacAddr;	/* set by UI */
+	UCHAR Status;		/* 0: none , 1: wait STAkey, 2: finish DLS setup , set by driver only */
+	BOOLEAN Valid;		/* 1: valid , 0: invalid , set by UI, use to setup or tear down DLS link */
+} RT_802_11_DLS_UI, *PRT_802_11_DLS_UI;
+
+typedef struct _RT_802_11_DLS_INFO {
+	RT_802_11_DLS_UI Entry[MAX_NUMBER_OF_DLS_ENTRY];
+	UCHAR num;
+} RT_802_11_DLS_INFO, *PRT_802_11_DLS_INFO;
+
+typedef enum _RT_802_11_DLS_MODE {
+	DLS_NONE,
+	DLS_WAIT_KEY,
+	DLS_FINISH
+} RT_802_11_DLS_MODE;
+#endif /* QOS_DLS_SUPPORT */
+
+
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef WSC_INCLUDED
 #define RT_WSC_UPNP_EVENT_FLAG		0x109
@@ -1224,6 +1285,13 @@ typedef struct _RT_LLTD_ASSOICATION_TABLE {
 
 /*#define MAX_CUSTOM_LEN 128 */
 
+#ifdef CONFIG_STA_SUPPORT
+typedef enum _RT_802_11_D_CLIENT_MODE {
+	Rt802_11_D_None,
+	Rt802_11_D_Flexible,
+	Rt802_11_D_Strict,
+} RT_802_11_D_CLIENT_MODE, *PRT_802_11_D_CLIENT_MODE;
+#endif /* CONFIG_STA_SUPPORT */
 
 typedef struct _RT_CHANNEL_LIST_INFO {
 	UCHAR ChannelList[MAX_NUM_OF_CHS];	/* list all supported channels for site survey */
@@ -1286,6 +1354,16 @@ typedef struct _WAPI_WIE_STRUCT {
 
 
 #ifdef APCLI_SUPPORT
+#ifdef WPA_SUPPLICANT_SUPPORT
+#define	RT_ASSOC_EVENT_FLAG                         0x0101
+#define	RT_DISASSOC_EVENT_FLAG                      0x0102
+#define	RT_REQIE_EVENT_FLAG                         0x0103
+#define	RT_RESPIE_EVENT_FLAG                        0x0104
+#define	RT_ASSOCINFO_EVENT_FLAG                     0x0105
+#define RT_PMKIDCAND_FLAG                           0x0106
+#define RT_INTERFACE_DOWN                           0x0107
+#define RT_INTERFACE_UP                             0x0108
+#endif /* WPA_SUPPLICANT_SUPPORT */
 #endif /* APCLI_SUPPORT */
 
 

@@ -541,23 +541,6 @@ VOID AsicGetTxPowerOffset(RTMP_ADAPTER *pAd, ULONG *TxPwr)
 		return;
 	}
 
-#ifdef DOT11_VHT_AC
-	if (pAd->CommonCfg.BBPCurrentBW == BW_80 &&
-		pAd->CommonCfg.Channel > 14)
-	{
-		CfgOfTxPwrCtrlOverMAC.TxPwrCtrlOverMAC[0].MACRegisterOffset = TX_PWR_CFG_0;
-		CfgOfTxPwrCtrlOverMAC.TxPwrCtrlOverMAC[0].RegisterValue = pAd->Tx80MPwrCfgABand[0];
-		CfgOfTxPwrCtrlOverMAC.TxPwrCtrlOverMAC[1].MACRegisterOffset = TX_PWR_CFG_1;
-		CfgOfTxPwrCtrlOverMAC.TxPwrCtrlOverMAC[1].RegisterValue = pAd->Tx80MPwrCfgABand[1];
-		CfgOfTxPwrCtrlOverMAC.TxPwrCtrlOverMAC[2].MACRegisterOffset = TX_PWR_CFG_2;
-		CfgOfTxPwrCtrlOverMAC.TxPwrCtrlOverMAC[2].RegisterValue = pAd->Tx80MPwrCfgABand[2];
-		CfgOfTxPwrCtrlOverMAC.TxPwrCtrlOverMAC[3].MACRegisterOffset = TX_PWR_CFG_3;
-		CfgOfTxPwrCtrlOverMAC.TxPwrCtrlOverMAC[3].RegisterValue = pAd->Tx80MPwrCfgABand[3];
-		CfgOfTxPwrCtrlOverMAC.TxPwrCtrlOverMAC[4].MACRegisterOffset = TX_PWR_CFG_4;
-		CfgOfTxPwrCtrlOverMAC.TxPwrCtrlOverMAC[4].RegisterValue = pAd->Tx80MPwrCfgABand[4];
-	}
-	else
-#endif /* DOT11_VHT_AC */
 	if (pAd->CommonCfg.BBPCurrentBW == BW_40)
 	{
 		if (pAd->CommonCfg.CentralChannel > 14)
@@ -824,6 +807,34 @@ VOID AsicAdjustTxPower(RTMP_ADAPTER *pAd)
 #endif /* SINGLE_SKU */
 
 
+#ifdef CONFIG_STA_SUPPORT
+	if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_IDLE_RADIO_OFF))
+		return;
+
+	// TODO: shiang-7603
+	if (pAd->chipCap.hif_type == HIF_MT) {
+		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s(): Not finish for HIF_MT yet!\n", __FUNCTION__));
+		return;
+	}
+
+	if (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_DOZE) || 
+#ifdef RTMP_MAC_PCI
+		(pAd->bPCIclkOff == TRUE) || RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_IDLE_RADIO_OFF) ||
+#endif /* RTMP_MAC_PCI */
+		RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS))
+		return;
+
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		if(INFRA_ON(pAd))
+		{
+			Rssi = RTMPMaxRssi(pAd, 
+						   pAd->StaCfg.RssiSample.AvgRssi[0], 
+						   pAd->StaCfg.RssiSample.AvgRssi[1], 
+						   pAd->StaCfg.RssiSample.AvgRssi[2]);
+		}
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 	/* Get Tx rate offset table which from EEPROM 0xDEh ~ 0xEFh */
 	RTMP_CHIP_ASIC_TX_POWER_OFFSET_GET(pAd, (PULONG)&CfgOfTxPwrCtrlOverMAC);
@@ -1251,6 +1262,23 @@ VOID AsicPercentageDeltaPower(
 	
 	if (pAd->CommonCfg.TxPowerPercentage >= 100) /* AUTO TX POWER control */
 	{
+#ifdef CONFIG_STA_SUPPORT
+		if ((pAd->OpMode == OPMODE_STA)
+		)
+		{
+			/* To patch high power issue with some APs, like Belkin N1.*/
+			if (Rssi > -35)
+			{
+				*pDeltaPwr -= 12;
+			}
+			else if (Rssi > -40)
+			{
+				*pDeltaPwr -= 6;
+			}
+			else
+				;
+		}
+#endif /* CONFIG_STA_SUPPORT */
 	}
 	else if (pAd->CommonCfg.TxPowerPercentage > 90) /* 91 ~ 100% & AUTO, treat as 100% in terms of mW */
 		;

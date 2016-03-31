@@ -55,6 +55,9 @@ VOID APPeerProbeReqAction(
 	UCHAR RSNIe=IE_WPA, RSNIe2=IE_WPA2;
 	BSS_STRUCT *mbss;
 	struct wifi_dev *wdev;
+#ifdef BAND_STEERING
+	BOOLEAN bBndStrgCheck = TRUE;
+#endif /* BAND_STEERING */
 
 #ifdef WSC_AP_SUPPORT
 	UCHAR Addr3[MAC_ADDR_LEN];
@@ -98,6 +101,9 @@ MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s():shiang! PeerProbeReqSa
 
 		if ( ((((ProbeReqParam.SsidLen == 0) && (!mbss->bHideSsid)) ||
 			   ((ProbeReqParam.SsidLen == mbss->SsidLen) && NdisEqualMemory(ProbeReqParam.Ssid, mbss->Ssid, (ULONG) ProbeReqParam.SsidLen)))
+#ifdef CONFIG_HOTSPOT
+			   && ProbeReqforHSAP(pAd, apidx, &ProbeReqParam)
+#endif
 			 )
 #ifdef WSC_AP_SUPPORT
             /* buffalo WPS testbed STA send ProbrRequest ssid length = 32 and ssid are not AP , but DA are AP. for WPS test send ProbeResponse */
@@ -111,6 +117,17 @@ MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s():shiang! PeerProbeReqSa
 			continue; /* check next BSS */
 		}
 
+
+#ifdef BAND_STEERING
+		BND_STRG_CHECK_CONNECTION_REQ(	pAd,
+											NULL, 
+											ProbeReqParam.Addr2,
+											Elem->MsgType,
+											Elem->rssi_info,
+											&bBndStrgCheck);
+		if (bBndStrgCheck == FALSE)
+			return;
+#endif /* BAND_STEERING */
 
 		/* allocate and send out ProbeRsp frame */
 		NStatus = MlmeAllocateMemory(pAd, &pOutBuffer);
@@ -245,6 +262,22 @@ MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s():shiang! PeerProbeReqSa
 		}
 		else
 		{
+#ifdef CONFIG_HOTSPOT_R2
+			PHOTSPOT_CTRL pHSCtrl =  &mbss->HotSpotCtrl;
+			extern UCHAR		OSEN_IE[];
+			extern UCHAR		OSEN_IELEN;
+
+			if ((pHSCtrl->HotSpotEnable == 0) && (pHSCtrl->bASANEnable == 1) && (wdev->AuthMode == Ndis802_11AuthModeWPA2))
+			{
+				RSNIe = IE_WPA;
+				MakeOutgoingFrame(pOutBuffer+FrameLen,        &TmpLen,
+						  1,                            &RSNIe,
+						  1,                            &OSEN_IELEN,
+						  OSEN_IELEN,					OSEN_IE,
+						  END_OF_ARGS);
+			}
+			else
+#endif
 			{						
 				MakeOutgoingFrame(pOutBuffer+FrameLen,      &TmpLen,
 							  1,                        &RSNIe,
@@ -255,6 +288,47 @@ MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s():shiang! PeerProbeReqSa
 			FrameLen += TmpLen;
 		}
 
+#ifdef CONFIG_HOTSPOT
+		if (pAd->ApCfg.MBSSID[apidx].HotSpotCtrl.HotSpotEnable)
+		{
+			ULONG TmpLen;
+				
+			/* Hotspot 2.0 Indication */
+			MakeOutgoingFrame(pOutBuffer + FrameLen, &TmpLen,
+							  pAd->ApCfg.MBSSID[apidx].HotSpotCtrl.HSIndicationIELen, 
+							  pAd->ApCfg.MBSSID[apidx].HotSpotCtrl.HSIndicationIE, END_OF_ARGS);
+
+			FrameLen += TmpLen;
+
+			/* Interworking element */
+			MakeOutgoingFrame(pOutBuffer + FrameLen, &TmpLen,
+							  pAd->ApCfg.MBSSID[apidx].HotSpotCtrl.InterWorkingIELen, 
+							  pAd->ApCfg.MBSSID[apidx].HotSpotCtrl.InterWorkingIE, END_OF_ARGS); 
+
+			FrameLen += TmpLen;
+
+			/* Advertisement Protocol element */
+			MakeOutgoingFrame(pOutBuffer + FrameLen, &TmpLen,
+							  pAd->ApCfg.MBSSID[apidx].HotSpotCtrl.AdvertisementProtoIELen, 
+							  pAd->ApCfg.MBSSID[apidx].HotSpotCtrl.AdvertisementProtoIE, END_OF_ARGS); 
+
+			FrameLen += TmpLen;
+
+			/* Roaming Consortium element */ 
+			MakeOutgoingFrame(pOutBuffer + FrameLen, &TmpLen,
+							  pAd->ApCfg.MBSSID[apidx].HotSpotCtrl.RoamingConsortiumIELen, 
+							  pAd->ApCfg.MBSSID[apidx].HotSpotCtrl.RoamingConsortiumIE, END_OF_ARGS); 
+
+			FrameLen += TmpLen;
+
+			/* P2P element */
+			MakeOutgoingFrame(pOutBuffer + FrameLen, &TmpLen,
+							  pAd->ApCfg.MBSSID[apidx].HotSpotCtrl.P2PIELen, 
+							  pAd->ApCfg.MBSSID[apidx].HotSpotCtrl.P2PIE, END_OF_ARGS); 
+
+			FrameLen += TmpLen;
+		}
+#endif
 
 		/* Extended Capabilities IE */
 		{
@@ -279,8 +353,18 @@ MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s():shiang! PeerProbeReqSa
 #ifdef CONFIG_DOT11V_WNM
 			if (pAd->ApCfg.MBSSID[apidx].WNMCtrl.ProxyARPEnable)
 				extCapInfo.proxy_arp = 1;
+#ifdef CONFIG_HOTSPOT_R2		
+			if (pAd->ApCfg.MBSSID[apidx].WNMCtrl.WNMNotifyEnable)
+				extCapInfo.wnm_notification= 1;
+			if (pAd->ApCfg.MBSSID[apidx].HotSpotCtrl.QosMapEnable)
+				extCapInfo.qosmap= 1;
+#endif		
 #endif
 
+#ifdef CONFIG_HOTSPOT
+			if (pAd->ApCfg.MBSSID[apidx].HotSpotCtrl.HotSpotEnable)
+				extCapInfo.interworking = 1;
+#endif
 
 			MakeOutgoingFrame(pOutBuffer+FrameLen, &TmpLen,
 								1, 			&ExtCapIe,
@@ -294,6 +378,11 @@ MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s():shiang! PeerProbeReqSa
 #ifdef AP_QLOAD_SUPPORT
 		if (pAd->phy_ctrl.FlgQloadEnable != 0)
 		{
+#ifdef CONFIG_HOTSPOT_R2		
+			if (pAd->ApCfg.MBSSID[apidx].HotSpotCtrl.QLoadTestEnable == 1)
+				FrameLen += QBSS_LoadElementAppend_HSTEST(pAd, pOutBuffer+FrameLen, apidx);
+			else if (pAd->ApCfg.MBSSID[apidx].HotSpotCtrl.QLoadTestEnable == 0)	
+#endif		
 			FrameLen += QBSS_LoadElementAppend(pAd, pOutBuffer+FrameLen);
 		}
 #endif /* AP_QLOAD_SUPPORT */
@@ -439,22 +528,6 @@ MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s():shiang! PeerProbeReqSa
 						END_OF_ARGS);
 						FrameLen += TmpLen;
 
-#ifdef DOT11_VHT_AC
-				if (WMODE_CAP_AC(PhyMode)) {
-					ULONG TmpLen;
-					UINT8 vht_txpwr_env_ie = IE_VHT_TXPWR_ENV;
-					UINT8 ie_len;
-					VHT_TXPWR_ENV_IE txpwr_env;
-
-					ie_len = build_vht_txpwr_envelope(pAd, (UCHAR *)&txpwr_env);
-					MakeOutgoingFrame(pOutBuffer + FrameLen, &TmpLen,
-								1,							&vht_txpwr_env_ie,
-								1,							&ie_len,
-								ie_len,						&txpwr_env,
-								END_OF_ARGS);
-					FrameLen += TmpLen;
-				}
-#endif /* DOT11_VHT_AC */
 			}
 #endif /* A_BAND_SUPPORT */
 
@@ -602,12 +675,6 @@ MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s():shiang! PeerProbeReqSa
 				FrameLen += TmpLen;
 			}
 
-#ifdef DOT11_VHT_AC
-			if (WMODE_CAP_AC(PhyMode) &&
-				(pAd->CommonCfg.Channel > 14)) {
-				FrameLen += build_vht_ies(pAd, (UCHAR *)(pOutBuffer+FrameLen), SUBTYPE_PROBE_RSP);
-			}
-#endif /* DOT11_VHT_AC */
 
 		}
 #endif /* DOT11_N_SUPPORT */
@@ -903,8 +970,15 @@ VOID APPeerBeaconAction(
 
 #ifdef APCLI_SUPPORT
 #ifdef MT_MAC
+#ifdef MULTI_APCLI_SUPPORT
+        if (Elem->Wcid == APCLI_MCAST_WCID(0) || Elem->Wcid == APCLI_MCAST_WCID(1))
+        {
+        	ApCliWcid = TRUE;
+        }
+#else /* MULTI_APCLI_SUPPORT */
         if (Elem->Wcid == APCLI_MCAST_WCID)
             ApCliWcid = TRUE;
+#endif /* !MULTI_APCLI_SUPPORT */
 #endif
 		if (Elem->Wcid < MAX_LEN_OF_MAC_TABLE
 #ifdef MT_MAC
@@ -995,6 +1069,7 @@ VOID APPeerBeaconAction(
 		}
 
 #ifdef APCLI_CERT_SUPPORT
+#ifdef DOT11N_DRAFT3 
 		if (pAd->bApCliCertTest == TRUE)
 		{
 			UCHAR RegClass;
@@ -1015,6 +1090,7 @@ VOID APPeerBeaconAction(
 			}
 		}
 #endif /* APCLI_CERT_SUPPORT */		
+#endif/*11nDRAFT3*/
 #endif /* APCLI_SUPPORT */
 
 #ifdef WDS_SUPPORT

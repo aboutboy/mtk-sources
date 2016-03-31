@@ -26,13 +26,12 @@
 #include	"rt_config.h"
 
 #ifdef LED_CONTROL_SUPPORT
-
-
+	
 
 #ifdef CONFIG_ANDES_SUPPORT
 INT LED_Array[16][12]={
 	{-1, -1,   -1,   -1,   -1, -1, -1, -1, -1, -1, -1, -1},
-	{ 0,   3,     1,    0,   -1,  -1,  0, -1,   5, -1, -1, 17},
+	{ 0,   2,     1,    0,   -1,  -1,  0, -1,   5, -1, -1, 17},
 	{-1, -1,   -1,   -1,   -1, -1, -1, -1, -1, -1, -1, -1},
 	{-1, -1,   -1,   -1,   -1, -1, -1, -1, -1, -1, -1, -1},
 	{-1, -1,   -1,   -1,   -1, -1, -1, -1, -1, -1, -1, -1},
@@ -89,6 +88,9 @@ VOID RTMPSetLEDStatus(RTMP_ADAPTER *pAd, UCHAR Status)
 #ifdef CONFIG_AP_SUPPORT
 	pWscControl = &pAd->ApCfg.MBSSID[MAIN_MBSSID].WscControl;
 #endif /* CONFIG_AP_SUPPORT */
+#ifdef CONFIG_STA_SUPPORT
+	pWscControl = &pAd->StaCfg.WscControl;
+#endif /* CONFIG_STA_SUPPORT */
 #endif /* WSC_LED_SUPPORT */
 #endif /* WSC_INCLUDED */
 
@@ -337,7 +339,7 @@ VOID RTMPSetLEDStatus(RTMP_ADAPTER *pAd, UCHAR Status)
 #ifdef MT7628
 	if (IS_MT7628(pAd))
 	{
-		AndesLedOP(pAd, 0, LED_CMD);
+		AndesLedEnhanceOP(pAd, 0, 0, 0, LED_CMD);
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("%s: LED_CMD:0x%x, LED Mode:0x%x, LinkStatus:0x%x\n", __FUNCTION__, LED_CMD, LedMode, LinkStatus)); 
 	} else
 #endif /*MT7628*/

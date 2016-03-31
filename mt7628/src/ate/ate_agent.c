@@ -187,6 +187,9 @@ INT32 SetATEDa(RTMP_ADAPTER *pAd, RTMP_STRING *Arg)
 		AtoH(Value, &ATECtrl->Addr1[Octet++], 1);
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+		AtoH(Value, &ATECtrl->Addr3[Octet++], 1);
+#endif /* CONFIG_STA_SUPPORT */
 	}
 
 	/* sanity check */
@@ -202,6 +205,11 @@ INT32 SetATEDa(RTMP_ADAPTER *pAd, RTMP_STRING *Arg)
 
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("%s: (DA = %02x:%02x:%02x:%02x:%02x:%02x)\n", __FUNCTION__,
+		ATECtrl->Addr3[0], ATECtrl->Addr3[1], ATECtrl->Addr3[2], ATECtrl->Addr3[3],
+		ATECtrl->Addr3[4], ATECtrl->Addr3[5]));
+#endif /* CONFIG_STA_SUPPORT */
 	return TRUE;
 }
 
@@ -229,6 +237,9 @@ INT32 SetATESa(RTMP_ADAPTER *pAd, RTMP_STRING *Arg)
 		AtoH(Value, &ATECtrl->Addr3[Octet++], 1);
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+		AtoH(Value, &ATECtrl->Addr2[Octet++], 1);
+#endif /* CONFIG_STA_SUPPORT */
 	}
 
 	/* sanity check */
@@ -243,6 +254,11 @@ INT32 SetATESa(RTMP_ADAPTER *pAd, RTMP_STRING *Arg)
 		ATECtrl->Addr3[4], ATECtrl->Addr3[5]));
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("%s: (SA = %02x:%02x:%02x:%02x:%02x:%02x)\n", __FUNCTION__,
+		ATECtrl->Addr2[0], ATECtrl->Addr2[1], ATECtrl->Addr2[2], ATECtrl->Addr2[3],
+		ATECtrl->Addr2[4], ATECtrl->Addr2[5]));
+#endif /* CONFIG_STA_SUPPORT */
 	return TRUE;
 }
 
@@ -269,6 +285,9 @@ INT32 SetATEBssid(RTMP_ADAPTER *pAd, RTMP_STRING *Arg)
 		AtoH(Value, &ATECtrl->Addr2[Octet++], 1);
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+		AtoH(Value, &ATECtrl->Addr1[Octet++], 1);
+#endif /* CONFIG_STA_SUPPORT */
 	}
 
 	/* sanity check */
@@ -283,6 +302,11 @@ INT32 SetATEBssid(RTMP_ADAPTER *pAd, RTMP_STRING *Arg)
 		ATECtrl->Addr2[4], ATECtrl->Addr2[5]));
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("%s: (BSSID = %02x:%02x:%02x:%02x:%02x:%02x)\n", __FUNCTION__,
+		ATECtrl->Addr1[0], ATECtrl->Addr1[1], ATECtrl->Addr1[2], ATECtrl->Addr1[3],
+		ATECtrl->Addr1[4], ATECtrl->Addr1[5]));
+#endif /* CONFIG_STA_SUPPORT */
 	return TRUE;
 }
 

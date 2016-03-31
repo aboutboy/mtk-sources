@@ -82,6 +82,13 @@ INT32 BcnTxSHandler(RTMP_ADAPTER *pAd, CHAR *Data)
 	}
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+	if (pAd->OpMode == OPMODE_STA && (pAd->StaCfg.BssType == BSS_ADHOC)) 
+	{
+		DBGPRINT(RT_DEBUG_OFF, ("got TXS, MakeIbssBeacon\n"));
+		MakeIbssBeacon(pAd);
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 	return 0;
 }
@@ -96,6 +103,12 @@ INT32 PsDataTxSHandler(RTMP_ADAPTER *pAd, CHAR *Data)
 {
 	TXS_STRUC *txs_entry = (TXS_STRUC *)Data;
 	TXS_D_3 *txs_d3 = &txs_entry->txs_d3;
+
+        if ((txs_d3 == NULL) || (txs_d3->wlan_idx >= MAX_LEN_OF_TR_TABLE))
+        {
+		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR | DBG_FUNC_PS, ("---->%s INVALID_TR_WCID(WlanIndex)\n", __FUNCTION__));        	
+                return 0;
+        }
 
 	if (pAd->MacTab.tr_entry[txs_d3->wlan_idx].PsDeQWaitCnt) {
 		/* After a successfull Tx of dequeued PS data, we clear PsDeQWaitCnt */

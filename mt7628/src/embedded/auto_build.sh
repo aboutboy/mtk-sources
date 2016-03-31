@@ -24,6 +24,10 @@ if [ -d release/mt_wifi_ap_auto_build ]; then
     mv release/mt_wifi_ap_auto_build mt_wifi_ap
 fi
 
+if [ -d release/mt_wifi_sta_auto_build ]; then
+    mv release/mt_wifi_sta_auto_build mt_wifi_sta
+fi
+
 if [ -d release ]; then
 	rm -rf release
 fi

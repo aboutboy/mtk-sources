@@ -452,6 +452,16 @@ INT NICReadEEPROMParameters(RTMP_ADAPTER *pAd, RTMP_STRING *mac_addr)
 	}
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		if ((NicConfig2.word & 0x00ff) == 0xff)
+			NicConfig2.word &= 0xff00;
+
+		if ((NicConfig2.word >> 8) == 0xff)
+			NicConfig2.word &= 0x00ff;
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 	if (NicConfig2.field.DynamicTxAgcControl == 1) {
 		pAd->bAutoTxAgcA = pAd->bAutoTxAgcG = TRUE;

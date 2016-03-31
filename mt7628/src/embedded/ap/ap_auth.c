@@ -143,7 +143,7 @@ static VOID APPeerDeauthReqAction(
 
 //JERRY
 		{
-			BSS_STRUCT  *pMbss = &pAd->ApCfg.MBSSID[pEntry->apidx];
+			BSS_STRUCT  *pMbss = &pAd->ApCfg.MBSSID[pEntry->func_tb_idx];
 			PFRAME_802_11 Fr = (PFRAME_802_11)Elem->Msg;
 			unsigned char *tmp = (unsigned char *)pMbss->wdev.bssid;
 			unsigned char *tmp2 = (unsigned char *)&Fr->Hdr.Addr1;
@@ -205,7 +205,7 @@ static VOID APPeerDeauthReqAction(
 				MlmeEnqueue(pAd, APCLI_CTRL_STATE_MACHINE, APCLI_CTRL_DISCONNECT_REQ, 0, NULL,
 								(64 + MAX_EXT_MAC_ADDR_SIZE*apCliIdx + CliIdx));
 				RTMP_MLME_HANDLER(pAd);
-				RTMPRemoveRepeaterEntry(pAd, apCliIdx, CliIdx);
+				//RTMPRemoveRepeaterEntry(pAd, apCliIdx, CliIdx);
 			}
 		}
 #endif /* MAC_REPEATER_SUPPORT */
@@ -339,7 +339,9 @@ static VOID APPeerAuthReqAtIdleAction(RTMP_ADAPTER *pAd, MLME_QUEUE_ELEM *Elem)
 	UCHAR ChTxtIe = 16, ChTxtLen = CIPHER_TEXT_LEN;
 	BSS_STRUCT *pMbss;
 	struct wifi_dev *wdev;
-
+#ifdef BAND_STEERING
+	BOOLEAN bBndStrgCheck = TRUE;
+#endif /* BAND_STEERING */
 
 
 	if (pAd->ApCfg.BANClass3Data == TRUE)
@@ -442,6 +444,18 @@ SendAuth:
 				"Status code = %d\n", MLME_UNSPECIFY_FAIL));
 		return;
     }
+
+
+#ifdef BAND_STEERING
+	BND_STRG_CHECK_CONNECTION_REQ(	pAd,
+										NULL, 
+										auth_info.addr2,
+										Elem->MsgType,
+										Elem->rssi_info,
+										&bBndStrgCheck);
+	if (bBndStrgCheck == FALSE)
+		return;
+#endif /* BAND_STEERING */
 
 	if ((auth_info.auth_alg == AUTH_MODE_OPEN) && 
 		(pMbss->wdev.AuthMode != Ndis802_11AuthModeShared)) 
@@ -658,7 +672,8 @@ VOID APCls2errAction(
 	ULONG FrameLen = 0;
 	USHORT Reason = REASON_CLS2ERR;
 	MAC_TABLE_ENTRY *pEntry = NULL;
-
+	UCHAR apidx;
+		
 	if (Wcid < MAX_LEN_OF_MAC_TABLE)
 		pEntry = &(pAd->MacTab.Content[Wcid]);
 
@@ -669,13 +684,12 @@ VOID APCls2errAction(
 	}
 	else
 	{
-		UCHAR bssid[MAC_ADDR_LEN];
-
-		NdisMoveMemory(bssid, pHeader->Addr1, MAC_ADDR_LEN);
-		bssid[5] &= pAd->ApCfg.MacMask;
-
-		if (NdisEqualMemory(pAd->CurrentAddress, bssid, MAC_ADDR_LEN) == 0)
+		apidx = get_apidx_by_addr(pAd, pHeader->Addr1);         
+		if (apidx >= pAd->ApCfg.BssidNum)
+		{
+			DBGPRINT(RT_DEBUG_TRACE,("AUTH - Class 2 error but not my bssid %02x:%02x:%02x:%02x:%02x:%02x\n", PRINT_MAC(pHeader->Addr1))); 
 			return;
+		}
 	}
 
 	/* send out DEAUTH frame */

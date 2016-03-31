@@ -146,6 +146,9 @@ int __init rt2880_module_init(void)
 	net_dev->base_addr = csr_addr;		/* Save CSR virtual address and irq to device structure */
 	((POS_COOKIE)handle)->pci_dev = NULL;
 
+#ifdef CONFIG_STA_SUPPORT
+    pAd->StaCfg.OriDevType = net_dev->type;
+#endif /* CONFIG_STA_SUPPORT */
 
 
 

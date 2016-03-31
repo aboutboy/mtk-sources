@@ -2,8 +2,8 @@ OSABL=NO
 EmbeddedDir=`pwd`
 BaseCodeDir=`dirname $EmbeddedDir`
 ChipName="mt7628"
-WiFiMode=AP
-DriverVersion="V4.0.1.0"
+WiFiMode=APSTA
+DriverVersion="V4.0.1.3"
 Release="DPA"
 Note=$1
 Description="Formal release."
@@ -59,6 +59,7 @@ for i in $Release; do
 
 	## Regenerate Firmware ##
 	rm -rf include/mcu/mt7628_firmware.h
+	rm -rf include/mcu/mt7628_e2_firmware.h
 	make build_tools CHIPSET=$ChipName
 
 if [ "$1" != "auto_build" ]; then

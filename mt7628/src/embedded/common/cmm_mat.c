@@ -112,7 +112,14 @@ PUCHAR MATDBEntryAlloc(IN MAT_STRUCT *pMatStruct, IN UINT32 size)
 #else
 	UCHAR *pPtr = NULL;
 
+	if (pMatStruct->nodeCount >= 128)
+	{
+		return NULL;
+	}
+	else 
+	{
 	os_alloc_mem(NULL, (PUCHAR *)&pPtr, size);
+	}
 
 #endif
 
@@ -231,6 +238,8 @@ PUCHAR MATEngineTxHandle(
 #endif /* APCLI_SUPPORT */
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+#endif /* CONFIG_STA_SUPPORT */
 
 			if (pHandle->tx!=NULL)
 				retSkb = pHandle->tx((PVOID)&pAd->MatCfg, RTPKT_TO_OSPKT(pPkt), pLayerHdr, pMacAddr);
@@ -336,6 +345,8 @@ BOOLEAN MATPktRxNeedConvert(
 	}
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+#endif /* CONFIG_STA_SUPPORT */
 
 	return FALSE;
 	

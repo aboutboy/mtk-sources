@@ -28,6 +28,36 @@
 
 #include "rt_config.h"
 
+#ifdef CONFIG_STA_SUPPORT
+VOID CFG80211DRV_OpsScanInLinkDownAction(
+	VOID						*pAdOrg)
+{
+#ifdef CONFIG_STA_SUPPORT
+	PRTMP_ADAPTER pAd = (PRTMP_ADAPTER)pAdOrg;
+	BOOLEAN Cancelled;
+
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("---> CFG80211_MLME Disconnect in Scaning, ORI ==> %ld\n",
+	  								pAd->Mlme.CntlMachine.CurrState)); 	
+	   	
+	RTMPCancelTimer(&pAd->MlmeAux.ScanTimer, &Cancelled);
+	pAd->MlmeAux.Channel = 0;
+	   
+	pAd->cfg80211_ctrl.FlgCfg80211Scanning = FALSE;	
+	CFG80211OS_ScanEnd(pAd->pCfg80211_CB, TRUE);
+  
+	ScanNextChannel(pAd, OPMODE_STA);
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("<--- CFG80211_MLME Disconnect in Scan END, ORI ==> %ld\n",
+									pAd->Mlme.CntlMachine.CurrState)); 
+#endif /* CONFIG_STA_SUPPORT */
+}
+
+BOOLEAN CFG80211DRV_OpsScanRunning(
+	VOID						*pAdOrg)
+{
+	PRTMP_ADAPTER pAd = (PRTMP_ADAPTER)pAdOrg;
+	return pAd->cfg80211_ctrl.FlgCfg80211Scanning;
+}
+#endif /*CONFIG_STA_SUPPORT*/
 
 /* Refine on 2013/04/30 for two functin into one */
 INT CFG80211DRV_OpsScanGetNextChannel(
@@ -91,6 +121,65 @@ BOOLEAN CFG80211DRV_OpsScanCheckStatus(
 	VOID						*pAdOrg,
 	UINT8						 IfType)
 {
+#ifdef CONFIG_STA_SUPPORT
+	PRTMP_ADAPTER pAd = (PRTMP_ADAPTER)pAdOrg;
+
+ 	/* CFG_TODO */
+	if (CFG80211DRV_OpsScanRunning(pAd))
+	{
+		CFG80211DBG(DBG_LVL_ERROR, ("SCAN_FAIL: CFG80211 Internal SCAN Flag On\n")); 	
+		return FALSE; 
+	}
+
+	if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS))
+	{
+		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("SCAN_FAIL: BSS_SCAN_IN_PROGRESS\n"));
+		return FALSE; 
+	}
+
+	/* To avoid the scan cmd come-in during driver init */
+	if (!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_START_UP))
+	{
+		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("SCAN_FAIL: Scan cmd before Startup finish\n"));
+		return FALSE;
+	}
+
+	if ((OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_MEDIA_STATE_CONNECTED)) &&
+		((pAd->StaCfg.wdev.AuthMode == Ndis802_11AuthModeWPA) || 
+			(pAd->StaCfg.wdev.AuthMode == Ndis802_11AuthModeWPAPSK) ||
+			(pAd->StaCfg.wdev.AuthMode == Ndis802_11AuthModeWPA2) ||
+			(pAd->StaCfg.wdev.AuthMode == Ndis802_11AuthModeWPA2PSK)) &&	
+		(pAd->StaCfg.wdev.PortSecured == WPA_802_1X_PORT_NOT_SECURED))
+	{
+		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("SCAN_FAIL: Link UP, Port Not Secured! ignore this set::OID_802_11_BSSID_LIST_SCAN\n"));
+		return FALSE;
+	}
+
+	if (pAd->Mlme.CntlMachine.CurrState != CNTL_IDLE)
+	{
+		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("SCAN_FAIL: MLME busying\n"));
+		return FALSE;
+	}
+
+
+#ifdef RT_CFG80211_P2P_CONCURRENT_DEVICE	
+	if (RTMP_CFG80211_VIF_P2P_CLI_ON(pAd) &&
+	    (pAd->cfg80211_ctrl.FlgCfg80211Connecting == TRUE) &&
+        (IfType == RT_CMD_80211_IFTYPE_STATION))
+	{
+		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR,("SCAN_FAIL: P2P_CLIENT In Connecting & Canncel Scan with Infra Side\n"));
+#ifdef RT_CFG80211_SUPPORT	
+	if (pAd->cfg80211_ctrl.FlgCfg8021Disable2040Scan == TRUE &&
+        (IfType == RT_CMD_80211_IFTYPE_AP))
+	{
+		DBGPRINT(RT_DEBUG_ERROR,("Disable 20/40 scan!!\n"));
+		return FALSE;
+	}	
+#endif /* RT_CFG80211_SUPPORT */
+#endif /* RT_CFG80211_P2P_CONCURRENT_DEVICE */
+	/* do scan */
+	pAd->cfg80211_ctrl.FlgCfg80211Scanning = TRUE;
+#endif /*CONFIG_STA_SUPPORT*/
 	return TRUE;
 	
 }
@@ -187,6 +276,43 @@ count =2
 BOOLEAN CFG80211DRV_OpsScanExtraIesSet(
 	VOID						*pAdOrg)
 {
+#ifdef CONFIG_STA_SUPPORT
+	PRTMP_ADAPTER pAd = (PRTMP_ADAPTER)pAdOrg;
+	CFG80211_CB *pCfg80211_CB = pAd->pCfg80211_CB;
+	UINT ie_len = 0;
+	PCFG80211_CTRL cfg80211_ctrl = &pAd->cfg80211_ctrl;
+
+	if (pCfg80211_CB->pCfg80211_ScanReq)
+		ie_len = pCfg80211_CB->pCfg80211_ScanReq->ie_len;
+
+    CFG80211DBG(DBG_LVL_INFO, ("80211> CFG80211DRV_OpsExtraIesSet ==> %d\n", ie_len)); 
+	CFG80211DBG(DBG_LVL_INFO, ("80211> is_wpa_supplicant_up ==> %d\n", 
+									pAd->StaCfg.wpa_supplicant_info.WpaSupplicantUP)); 
+	
+	if (ie_len == 0)
+		return FALSE;
+
+	/* Reset the ExtraIe and Len */
+	if (cfg80211_ctrl->pExtraIe)
+	{	
+		os_free_mem(NULL, cfg80211_ctrl->pExtraIe);
+		cfg80211_ctrl->pExtraIe = NULL;
+	}
+	cfg80211_ctrl->ExtraIeLen = 0;
+	
+	os_alloc_mem(pAd, (UCHAR **)&(cfg80211_ctrl->pExtraIe), ie_len);
+	if (cfg80211_ctrl->pExtraIe)
+	{
+		NdisCopyMemory(cfg80211_ctrl->pExtraIe, pCfg80211_CB->pCfg80211_ScanReq->ie, ie_len);
+		cfg80211_ctrl->ExtraIeLen = ie_len;
+		hex_dump("CFG8021_SCAN_EXTRAIE", cfg80211_ctrl->pExtraIe, cfg80211_ctrl->ExtraIeLen);
+	}
+	else
+	{
+		CFG80211DBG(DBG_LVL_ERROR, ("80211> CFG80211DRV_OpsExtraIesSet ==> allocate fail. \n")); 
+		return FALSE;
+	}
+#endif /* CONFIG_STA_SUPPORT */	
 	return TRUE;
 }
 
@@ -288,6 +414,55 @@ VOID CFG80211_Scaning(
 	IN UINT32						FrameLen,
 	IN INT32						RSSI)
 {
+#ifdef CONFIG_STA_SUPPORT
+	PRTMP_ADAPTER pAd = (PRTMP_ADAPTER)pAdCB;
+	VOID *pCfg80211_CB = pAd->pCfg80211_CB;
+	BOOLEAN FlgIsNMode;
+	UINT8 BW;
+
+	if (!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_INTERRUPT_IN_USE))
+	{
+		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("80211> Network is down!\n"));
+		return;
+	} 
+
+	if (!pCfg80211_CB)
+    {
+            DBGPRINT(RT_DEBUG_ERROR, ("80211> pCfg80211_CB is invalid!\n"));
+            return;
+    }
+
+	/*
+		In connect function, we also need to report BSS information to cfg80211;
+		Not only scan function.
+	*/
+	if ((!CFG80211DRV_OpsScanRunning(pAd)) &&
+		(pAd->cfg80211_ctrl.FlgCfg80211Connecting == FALSE))
+	{
+		return; /* no scan is running from wpa_supplicant */
+	} 
+
+
+	/* init */
+	/* Note: Can not use local variable to do pChan */
+	if (WMODE_CAP_N(pAd->CommonCfg.PhyMode))
+		FlgIsNMode = TRUE;
+	else
+		FlgIsNMode = FALSE;
+
+	if (pAd->CommonCfg.RegTransmitSetting.field.BW == BW_20)
+		BW = 0;
+	else
+		BW = 1;
+
+	CFG80211OS_Scaning(pCfg80211_CB,
+						ChanId,
+						pFrame,
+						FrameLen,
+						RSSI,
+						FlgIsNMode,
+						BW);
+#endif /* CONFIG_STA_SUPPORT */
 }
 
 
@@ -310,6 +485,65 @@ VOID CFG80211_ScanEnd(
 	IN VOID						*pAdCB,
 	IN BOOLEAN					FlgIsAborted)
 {
+#ifdef CONFIG_STA_SUPPORT
+	PRTMP_ADAPTER pAd = (PRTMP_ADAPTER)pAdCB;
+#ifdef RT_CFG80211_P2P_MULTI_CHAN_SUPPORT
+	BSS_STRUCT *pMbss = &pAd->ApCfg.MBSSID[CFG_GO_BSSID_IDX];
+	PAPCLI_STRUCT pApCliEntry = pApCliEntry = &pAd->ApCfg.ApCliTab[MAIN_MBSSID];
+	struct wifi_dev *wdev = &pMbss->wdev;
+
+	if (RTMP_CFG80211_VIF_P2P_CLI_ON(pAd))
+	{
+		wdev = &(pApCliEntry->wdev);
+	}
+#endif /* RT_CFG80211_P2P_MULTI_CHAN_SUPPORT */
+
+	if (!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_INTERRUPT_IN_USE))
+	{
+		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("80211> Network is down!\n"));
+		return;
+	} 
+
+	if (!CFG80211DRV_OpsScanRunning(pAd))
+	{
+		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("80211> No scan is running!\n"));
+		return; /* no scan is running */
+	} 
+
+	if (FlgIsAborted == TRUE)
+		FlgIsAborted = 1;
+	else
+	{
+		FlgIsAborted = 0;
+#ifdef CFG80211_SCAN_SIGNAL_AVG			
+		CFG80211_UpdateBssTableRssi(pAd);
+#endif /* CFG80211_SCAN_SIGNAL_AVG */	
+	}
+	
+	CFG80211OS_ScanEnd(CFG80211CB, FlgIsAborted);	
+#ifdef RT_CFG80211_P2P_MULTI_CHAN_SUPPORT
+        if ((pAd->StaCfg.wdev.bw == wdev->bw) && (pAd->StaCfg.wdev.channel == wdev->channel))
+        {
+		DBGPRINT(RT_DEBUG_TRACE, ("Scc case , not star mcc when scan end\n"));
+        }
+	 else if (wdev->channel == 0)
+	 {
+		DBGPRINT(RT_DEBUG_TRACE, ("CLI still connect  , not star mcc when scan end\n"));
+	 }
+        else if (INFRA_ON(pAd) && (RTMP_CFG80211_VIF_P2P_GO_ON(pAd) ||(RTMP_CFG80211_VIF_P2P_CLI_ON(pAd) &&(pApCliEntry->Valid == TRUE)))&& 
+             (((pAd->StaCfg.wdev.bw == wdev->bw) && (pAd->StaCfg.wdev.channel != wdev->channel )) 
+					||!((pAd->StaCfg.wdev.bw == wdev->bw) && ((pAd->StaCfg.wdev.channel == wdev->channel))))
+		/*&& (pAd->MCC_GOConnect_Protect == FALSE)*/
+	)
+	{
+		Start_MCC(pAd);
+	}
+
+#endif /* RT_CFG80211_P2P_MULTI_CHAN_SUPPORT */
+
+
+	pAd->cfg80211_ctrl.FlgCfg80211Scanning = FALSE;
+#endif /* CONFIG_STA_SUPPORT */
 } 
 
 VOID CFG80211_ScanStatusLockInit(

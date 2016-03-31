@@ -1847,6 +1847,10 @@ static VOID PeerChSwAnnAction(RTMP_ADAPTER *pAd, MLME_QUEUE_ELEM *Elem)
 {
 	CH_SW_ANN_INFO ChSwAnnInfo;
 	PFRAME_802_11 pFr = (PFRAME_802_11)Elem->Msg;
+#ifdef CONFIG_STA_SUPPORT
+	UCHAR index = 0, Channel = 0, NewChannel = 0;
+	ULONG Bssidx = 0;
+#endif /* CONFIG_STA_SUPPORT */
 
 	NdisZeroMemory(&ChSwAnnInfo, sizeof(CH_SW_ANN_INFO));
 	if (! PeerChSwAnnSanity(pAd, Elem->Msg, Elem->MsgLen, &ChSwAnnInfo))
@@ -1865,6 +1869,57 @@ static VOID PeerChSwAnnAction(RTMP_ADAPTER *pAd, MLME_QUEUE_ELEM *Elem)
 	}
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+	if (pAd->OpMode == OPMODE_STA)
+	{
+		Bssidx = BssTableSearch(&pAd->ScanTab, pFr->Hdr.Addr3, pAd->CommonCfg.Channel);
+		if (Bssidx == BSS_NOT_FOUND)
+		{
+			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("PeerChSwAnnAction - Bssidx is not found\n"));
+			return;
+		}
+
+		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\nBssidx is %d, Channel = %d\n", index, pAd->ScanTab.BssEntry[Bssidx].Channel));
+		hex_dump("SSID",pAd->ScanTab.BssEntry[Bssidx].Bssid ,6);
+
+		Channel = pAd->CommonCfg.Channel;
+		NewChannel = ChSwAnnInfo.Channel;
+
+		if ((pAd->CommonCfg.bIEEE80211H == 1) && (NewChannel != 0) && (Channel != NewChannel))
+		{
+			/* Switching to channel 1 can prevent from rescanning the current channel immediately (by auto reconnection).*/
+			/* In addition, clear the MLME queue and the scan table to discard the RX packets and previous scanning results.*/
+			AsicSwitchChannel(pAd, 1, FALSE);
+			AsicLockChannel(pAd, 1);
+			LinkDown(pAd, FALSE);
+			MlmeQueueInit(pAd, &pAd->Mlme.Queue);
+		    RtmpusecDelay(1000000);		/* use delay to prevent STA do reassoc*/
+
+			/* channel sanity check*/
+			for (index = 0 ; index < pAd->ChannelListNum; index++)
+			{
+				if (pAd->ChannelList[index].Channel == NewChannel)
+				{
+					pAd->ScanTab.BssEntry[Bssidx].Channel = NewChannel;
+					pAd->CommonCfg.Channel = NewChannel;
+					AsicSwitchChannel(pAd, pAd->CommonCfg.Channel, FALSE);
+					AsicLockChannel(pAd, pAd->CommonCfg.Channel);
+					MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("%s():Receive channel switch announcement IE (New Channel =%d)\n",
+								__FUNCTION__,
+								NewChannel));
+					break;
+				}
+			}
+
+			if (index >= pAd->ChannelListNum)
+			{
+				DBGPRINT_ERR(("%s():can not find New Channel=%d in ChannelList[%d]\n",
+								__FUNCTION__,
+								pAd->CommonCfg.Channel, pAd->ChannelListNum));
+			}
+		}
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 	return;
 }

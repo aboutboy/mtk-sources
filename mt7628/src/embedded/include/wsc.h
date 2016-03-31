@@ -354,6 +354,11 @@ static inline BOOLEAN WscCheckWSCHeader(UCHAR *pData)
 #define	AP_WSC_MODEL_NAME		"Ralink Wireless Access Point"
 #define	AP_WSC_DEVICE_NAME		"RalinkAPS"
 #endif /* CONFIG_AP_SUPPORT */
+#ifdef CONFIG_STA_SUPPORT
+#define	STA_WSC_MODEL_NAME		"Ralink Wireless Linux Client"
+#define	STA_WSC_DEVICE_NAME		"RalinkLinuxClient"
+#define	WSC_DEVICE_NAME_R	"Ralink EX-Registrar"
+#endif /* CONFIG_STA_SUPPORT */
 #define	WSC_MODEL_NUMBER	"RT2860"
 #define	WSC_MODEL_SERIAL	"12345678"
 
@@ -560,6 +565,8 @@ typedef struct _WSC_STA_PBC_PROBE_INFO {
 } WSC_STA_PBC_PROBE_INFO, *PWSC_STA_PBC_PROBE_INFO;
 
 
+#ifdef CONFIG_STA_SUPPORT
+#endif /* CONFIG_STA_SUPPORT */
 
 typedef struct GNU_PACKED _WSC_PEER_DEV_INFO {
 	UCHAR	WscPeerDeviceName[32];
@@ -616,6 +623,9 @@ typedef	struct	_WSC_V2_INFO {
 	WSC_TLV			ExtraTlv;
 	BOOLEAN			bWpsEnable;		/* FALSE: disable WSC , TRUE: enable WSC */
 	BOOLEAN			bEnableWpsV2;	/* FALSE: not support WSC 2.0, TRUE: support WSC 2.0 */
+#ifdef CONFIG_STA_SUPPORT
+	BOOLEAN			bForceSetAP; /* FALSE: do not change AP's setting when AP is configured, TRUE: force to change AP's setting when AP is configured */
+#endif /* CONFIG_STA_SUPPORT */
 } WSC_V2_INFO, *PWSC_V2_INFO;
 #endif /* WSC_V2_SUPPORT */
 typedef struct _UUID_BSSID_CH_INFO {
@@ -665,6 +675,11 @@ typedef	struct	_WSC_CTRL
 	UCHAR 					ScanCountToincludeWPSPin1;
 #endif
 	UCHAR				    WscBssid[MAC_ADDR_LEN];	/* select a desired bssid to connect */
+#ifdef CONFIG_STA_SUPPORT
+	BOOLEAN				    WscEnAssociateIE;	    /* Add WSC IE on Associate frame. */
+	BOOLEAN				    WscEnProbeReqIE;	    /* Add WSC IE on Probe-Req frame. */
+	UCHAR				    WscPeerMAC[MAC_ADDR_LEN];	/* peer Mac Address */
+#endif /* CONFIG_STA_SUPPORT */
 	WSC_REG_DATA	RegData;		/* Registrar pair data */
 	UCHAR           lastId;
 	UCHAR           WscUseUPnP;
@@ -675,6 +690,10 @@ typedef	struct	_WSC_CTRL
 	BOOLEAN         Wsc2MinsTimerRunning;
 	RALINK_TIMER_STRUCT   Wsc2MinsTimer;
 	WSC_PROFILE			WscProfile;		/* Saved WSC profile after M8 */
+#ifdef CONFIG_STA_SUPPORT
+	WSC_PROFILE		        WscM7Profile;	/* Saved WSC profile from AP Settings in M7 */
+	BOOLEAN			        bConfiguredAP;	/* True: AP is in the configured state. FALSE: others */
+#endif /* CONFIG_STA_SUPPORT */
 	WSC_UPNP_NODE_INFO	WscUPnPNodeInfo;	/*Use to save UPnP node related info. */
 
     BOOLEAN             EapolTimerRunning; 
@@ -691,6 +710,10 @@ typedef	struct	_WSC_CTRL
     RALINK_TIMER_STRUCT     WscScanTimer;
 	BOOLEAN                 WscProfileRetryTimerRunning;
 	RALINK_TIMER_STRUCT		WscProfileRetryTimer;
+#ifdef CONFIG_STA_SUPPORT
+    /* 0x00: disable, 0x01: Auto Connect first credential only, 0x02: Auto Connect and rotate all crentials */
+    UCHAR                 	WscDriverAutoConnect;		
+#endif /* CONFIG_STA_SUPPORT */
 #ifdef WSC_LED_SUPPORT
 	ULONG					WscLEDMode; /* WPS LED mode: LED_WPS_XXX definitions. */
 	ULONG					WscLastWarningLEDMode; /* LED_WPS_ERROR or LED_WPS_SESSION_OVERLAP_DETECTED */

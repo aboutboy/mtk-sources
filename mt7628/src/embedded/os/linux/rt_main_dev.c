@@ -269,6 +269,10 @@ int rt28xx_open(VOID *dev)
 		if (OpMode == OPMODE_AP)
 			net_dev->wireless_handlers = (struct iw_handler_def *) &rt28xx_ap_iw_handler_def;
 #endif /* CONFIG_APSTA_MIXED_SUPPORT */
+#ifdef CONFIG_STA_SUPPORT
+		if (OpMode == OPMODE_STA)
+			net_dev->wireless_handlers = (struct iw_handler_def *) &rt28xx_iw_handler_def;
+#endif /* CONFIG_STA_SUPPORT */
 	}
 #endif /* WIRELESS_EXT >= 12 */
 
@@ -312,6 +316,10 @@ int rt28xx_open(VOID *dev)
 	RT28xx_ApCli_Init(pAd, net_dev);
 #endif /* RT_CFG80211_P2P_CONCURRENT_DEVICE || P2P_APCLI_SUPPORT || CFG80211_MULTI_STA */
 #endif /* APCLI_SUPPORT */
+
+#ifdef CONFIG_SNIFFER_SUPPORT
+	RT28xx_Monitor_Init(pAd, net_dev);
+#endif /* CONFIG_SNIFFER_SUPPORT */
 
 
 
@@ -385,6 +393,14 @@ PNET_DEV RtmpPhyNetDevInit(VOID *pAd, RTMP_OS_NETDEV_OP_HOOK *pNetDevHook)
 	/* put private data structure */
 	RTMP_OS_NETDEV_SET_PRIV(net_dev, pAd);
 
+#ifdef CONFIG_STA_SUPPORT
+#if WIRELESS_EXT >= 12
+	if (OpMode == OPMODE_STA)
+	{
+		pNetDevHook->iw_handler = (void *)&rt28xx_iw_handler_def;
+	}
+#endif /*WIRELESS_EXT >= 12 */
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef CONFIG_APSTA_MIXED_SUPPORT
 #if WIRELESS_EXT >= 12
@@ -582,6 +598,13 @@ INT rt28xx_ioctl(PNET_DEV net_dev, struct ifreq *rq, INT cmd)
 	}
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+/*	IF_DEV_CONFIG_OPMODE_ON_STA(pAd) */
+	RT_CONFIG_IF_OPMODE_ON_STA(OpMode)
+	{
+		ret = rt28xx_sta_ioctl(net_dev, rq, cmd);
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 	return ret;
 }
@@ -677,6 +700,10 @@ BOOLEAN RtmpPhyNetDevExit(VOID *pAd, PNET_DEV net_dev)
 	/* remove all WDS virtual interfaces. */
 	RT28xx_WDS_Remove(pAd);
 #endif /* WDS_SUPPORT */
+
+#ifdef CONFIG_SNIFFER_SUPPORT
+	RT28xx_Monitor_Remove(pAd);
+#endif	/* CONFIG_SNIFFER_SUPPORT */
 
 #ifdef MBSS_SUPPORT
 #if defined(P2P_APCLI_SUPPORT) || defined(RT_CFG80211_P2P_SUPPORT) || defined(CFG80211_MULTI_STA)

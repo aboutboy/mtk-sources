@@ -758,6 +758,12 @@ void wlan_802_11_to_802_3_packet(
 	}
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+	RT_CONFIG_IF_OPMODE_ON_STA(OpMode)
+	{
+	    NdisMoveMemory(skb_push(pOSPkt, LENGTH_802_3), pHeader802_3, LENGTH_802_3);
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 }
 
@@ -1428,6 +1434,15 @@ int RtmpOSNetDevAddrSet(
 {
 	struct net_device *net_dev = (struct net_device *)pNetDev;
 
+#ifdef CONFIG_STA_SUPPORT
+	/* work-around for the SuSE due to it has it's own interface name management system. */
+	RT_CONFIG_IF_OPMODE_ON_STA(OpMode) {
+		if (dev_name != NULL) {
+			NdisZeroMemory(dev_name, 16);
+			NdisMoveMemory(dev_name, net_dev->name, strlen(net_dev->name));
+		}
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 	NdisMoveMemory(net_dev->dev_addr, pMacAddr, 6);
 
@@ -1713,6 +1728,14 @@ int RtmpOSNetDevAttach(
 		pNetDev->get_wireless_stats = pDevOpHook->get_wstats;
 #endif
 
+#ifdef CONFIG_STA_SUPPORT
+#if WIRELESS_EXT >= 12
+		if (OpMode == OPMODE_STA) {
+/*			pNetDev->wireless_handlers = &rt28xx_iw_handler_def; */
+			pNetDev->wireless_handlers = pDevOpHook->iw_handler;
+		}
+#endif /*WIRELESS_EXT >= 12 */
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef CONFIG_APSTA_MIXED_SUPPORT
 #if WIRELESS_EXT >= 12
@@ -2416,6 +2439,45 @@ VOID RtmpOsDCacheFlush(
 }
 
 
+#ifdef CONFIG_STA_SUPPORT
+INT RtmpOSNotifyRawData(
+	IN PNET_DEV pNetDev,
+	IN PUCHAR buff,
+	IN INT len,
+	IN ULONG type,
+	IN USHORT protocol)
+{
+	struct sk_buff *skb = NULL;
+
+	skb = dev_alloc_skb(len + 2);
+
+	if (!skb)
+	{
+		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR,( "%s: failed to allocate sk_buff for notification\n", pNetDev->name));
+		return -ENOMEM;
+	}
+	else
+	{
+		skb_reserve(skb, 2);
+		memcpy(skb_put(skb, len), buff, len);
+		skb->len = len;
+		skb->dev = pNetDev;
+#if (LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,21))
+		skb->mac.raw = skb->data;
+#else
+		skb_set_mac_header(skb, 0);
+#endif
+		skb->ip_summed = CHECKSUM_UNNECESSARY;
+		skb->pkt_type = PACKET_OTHERHOST;
+		skb->protocol = htons(protocol);
+		memset(skb->cb, 0, sizeof(skb->cb));
+
+		netif_rx(skb);
+	}
+	return 0;
+}
+
+#endif /* CONFIG_STA_SUPPORT */
 
 
 void OS_SPIN_LOCK_IRQSAVE(NDIS_SPIN_LOCK *lock, unsigned long *flags)

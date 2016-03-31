@@ -44,6 +44,16 @@ config MT_MAC_REPEATER_SUPPORT
 #	bool "802.11k Radio Resource Management"
 #	depends on MT_AP_SUPPORT
 
+#config MT_SNIFFER_SUPPORT
+#	bool "SNIFFER"
+#	depends on MT_AP_SUPPORT
+#	default n
+
+#config MT_CFG80211_SUPPORT
+#	bool "CFG80211"
+#	depends on MT_AP_SUPPORT
+#	default n
+
 #config CON_WPS_SUPPORT
 #	bool "Concurrent WPS Support"
 #	depends on MT_AP_SUPPORT
@@ -82,4 +92,8 @@ config AIRPLAY_SUPPORT
 	depends on MT_AP_SUPPORT
 	default n
 	
+config BAND_STEERING
+	bool "Band Steering"
+	depends on MT_AP_SUPPORT
+	default n
 

@@ -410,6 +410,30 @@ typedef struct _CMD_RSP_CONTEXT
 /*
   *	Power Save Related MACRO 
   */
+#ifdef CONFIG_STA_SUPPORT
+#define RTMP_PS_POLL_ENQUEUE(pAd)						\
+	{	RTUSB_SET_BULK_FLAG(pAd, fRTUSB_BULK_OUT_PSPOLL);	\
+		RTUSBKickBulkOut(pAd); }
+
+/* 7636 psm */
+#define RTMP_STA_FORCE_WAKEUP(_pAd, bFromTx) \
+	RT28xxUsbStaAsicForceWakeup(_pAd, bFromTx);
+
+#define RTMP_STA_SLEEP_THEN_AUTO_WAKEUP(pAd, TbttNumToNextWakeUp) \
+    RT28xxUsbStaAsicSleepThenAutoWakeup(pAd, TbttNumToNextWakeUp);
+
+#define RTMP_SET_PSM_BIT(_pAd, _val) \
+	{\
+		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_INFO, ("%s(%d)\n", __FUNCTION__, __LINE__)); \
+		if ((_pAd)->StaCfg.WindowsPowerMode == Ndis802_11PowerModeFast_PSP) \
+			MlmeSetPsmBit(_pAd, _val);\
+		else \
+		{ \
+			USHORT _psm_val = _val; \
+			RTEnqueueInternalCmd(_pAd, CMDTHREAD_SET_PSM_BIT, &(_psm_val), sizeof(USHORT)); \
+		}\
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 #define RTMP_MLME_RADIO_ON(pAd) \
     UsbMlmeRadioOn(pAd);
@@ -512,6 +536,13 @@ typedef struct _CMD_RSP_CONTEXT
 							&Info, sizeof(RT_ASIC_SHARED_KEY));				\
 }
 
+#ifdef CONFIG_STA_SUPPORT
+/* Set Port Secured */
+#define RTMP_SET_PORT_SECURED(_pAd) 										\
+{																			\
+	RTEnqueueInternalCmd(_pAd, CMDTHREAD_SET_PORT_SECURED, NULL, 0);		\
+}
+#endif /* CONFIG_STA_SUPPORT */
 
 /* Remove Pairwise Key table */
 #define RTMP_REMOVE_PAIRWISE_KEY_ENTRY(_pAd, _Wcid)										\

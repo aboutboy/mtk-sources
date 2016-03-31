@@ -32,12 +32,6 @@
 #define RTMP_RELEASE_DESC_RESOURCE(pAd, QueIdx)	\
 		do{}while(0)
 
-#ifdef WFA_VHT_PF
-#define NEED_QUEUE_BACK_FOR_AGG(pAd, QueIdx, freeNum, _TxFrameType) \
-		((((pAd->force_amsdu && (_TxFrameType == TX_AMSDU_FRAME)) || (freeNum != (TX_RING_SIZE-1))) && (pAd->TxSwQueue[QueIdx].Number == 0)) || \
-		 (freeNum<3)\
-		)
-#else
 #if defined(MT7603_FPGA) || defined(MT7628_FPGA) || defined(MT7636_FPGA)
 #define NEED_QUEUE_BACK_FOR_AGG(pAd, QueIdx, freeNum, _TxFrameType) \
 		((((pAd->force_amsdu && (_TxFrameType == TX_RALINK_FRAME)) || (freeNum != (TX_RING_SIZE-1))) && (pAd->TxSwQueue[QueIdx].Number == 0)) || \
@@ -48,7 +42,6 @@
 		(((freeNum != (TX_RING_SIZE-1)) && (pAd->TxSwQueue[QueIdx].Number == 0)) || (freeNum<3))
 		/*(((freeNum) != (TX_RING_SIZE-1)) && (pAd->TxSwQueue[QueIdx].Number == 1)) */
 #endif
-#endif /* WFA_VHT_PF */
 
 #define HAL_KickOutMgmtTx(_pAd, _QueIdx, _pPacket, _pSrcBufVA, _SrcBufLen)	\
 			RtmpPCIMgmtKickOut(_pAd, _QueIdx, _pPacket, _pSrcBufVA, _SrcBufLen)
@@ -88,6 +81,9 @@
 
 #define IS_TXRING_EMPTY(_pAd, _QueIdx)\
 	(_pAd->TxRing[_QueIdx].TxDmaIdx == _pAd->TxRing[_QueIdx].TxCpuIdx)	? 1: 0;
+
+#define IS_RXRING_FULL(_pAd, _QueIdx)\
+	(_pAd->RxRing[_QueIdx].RxDmaIdx == _pAd->RxRing[_QueIdx].RxCpuIdx)	? 1: 0;
 
 #define GET_MGMTRING_FREENO(_pAd) \
 	(_pAd->MgmtRing.TxSwFreeIdx > _pAd->MgmtRing.TxCpuIdx)	? \

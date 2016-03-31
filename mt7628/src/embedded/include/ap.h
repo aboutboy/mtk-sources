@@ -273,6 +273,9 @@ VOID QBSS_LoadUpdate(RTMP_ADAPTER *pAd, ULONG UpTime);
 VOID QBSS_LoadStatusClear(RTMP_ADAPTER *pAd);
 
 INT	Show_QoSLoad_Proc(RTMP_ADAPTER *pAd, RTMP_STRING *arg);
+#ifdef CONFIG_HOTSPOT_R2
+UINT32 QBSS_LoadElementAppend_HSTEST(RTMP_ADAPTER *pAd, UINT8 *pBeaconBuf, UCHAR apidx);
+#endif /* CONFIG_HOTSPOT_R2 */
 #endif /* AP_QLOAD_SUPPORT */
 
 

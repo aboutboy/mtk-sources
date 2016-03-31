@@ -138,6 +138,27 @@
  /*
   *	Power Save Related MACRO 
   */
+#ifdef CONFIG_STA_SUPPORT
+#define RTMP_PS_POLL_ENQUEUE(pAd)
+
+/* 7636 psm */
+#define RTMP_STA_FORCE_WAKEUP(_pAd, bFromTx) 	\
+	MtSDIOStaAsicSleepThenAutoWakeup(_pAd, bFromTx);
+
+#define RTMP_STA_SLEEP_THEN_AUTO_WAKEUP(pAd, TbttNumToNextWakeUp)	\
+	MtSDIOStaAsicSleepThenAutoWakeup(pAd, TbttNumToNextWakeUp);
+
+#define RTMP_SET_PSM_BIT(_pAd, _val) \
+	{\
+		if ((_pAd)->StaCfg.WindowsPowerMode == Ndis802_11PowerModeFast_PSP) \
+			MlmeSetPsmBit(_pAd, _val);\
+		else \
+		{ \
+			USHORT _psm_val = _val; \
+			RTEnqueueInternalCmd(_pAd, CMDTHREAD_SET_PSM_BIT, &(_psm_val), sizeof(USHORT)); \
+		}\
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 #define RTMP_MLME_RADIO_ON(pAd) \
 		do{}while(0)
@@ -210,6 +231,12 @@
 #define RTMP_UPDATE_PROTECT(_pAd, _OperationMode, _SetMask, _bDisableBGProtect, _bNonGFExist)	\
                  do{}while(0)
 
+#ifdef CONFIG_STA_SUPPORT
+/* Set Port Secured */
+#define RTMP_SET_PORT_SECURED(_pAd) 										\
+                 do{}while(0)
+
+#endif /* CONFIG_STA_SUPPORT */
 
 /* Remove Pairwise Key table */
 #define RTMP_REMOVE_PAIRWISE_KEY_ENTRY(_pAd, _Wcid)\

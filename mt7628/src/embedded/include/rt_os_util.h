@@ -180,7 +180,10 @@ void send_radiotap_monitor_packets(
 		UCHAR Channel,
 		UCHAR CentralChannel,
 		UCHAR sideband_index,
-		UINT32 MaxRssi);
+		CHAR MaxRssi,
+		UINT32 timestamp);
+
+
 #endif /* CONFIG_SNIFFER_SUPPORT */
 
 UCHAR VLAN_8023_Header_Copy(
@@ -250,6 +253,10 @@ INT RtmpOSNetDevAlloc(PNET_DEV *new_dev_p, UINT32 privDataSize);
 INT RtmpOSNetDevOpsAlloc(PVOID *pNetDevOps);
 
 
+#ifdef CONFIG_STA_SUPPORT
+INT RtmpOSNotifyRawData(PNET_DEV pNetDev, UCHAR *buf, INT len, ULONG type, USHORT proto);
+
+#endif /* CONFIG_STA_SUPPORT */
 
 PNET_DEV RtmpOSNetDevGetByName(PNET_DEV pNetDev, RTMP_STRING *pDevName);
 
@@ -618,6 +625,21 @@ PNDIS_PACKET RTMP_AllocateRxPacketBuffer(
 	OUT	PVOID					*VirtualAddress,
 	OUT	PNDIS_PHYSICAL_ADDRESS	PhysicalAddress);
 
+#ifdef CONFIG_STA_SUPPORT
+#ifdef CONFIG_PM
+#ifdef USB_SUPPORT_SELECTIVE_SUSPEND
+
+int RTMP_Usb_AutoPM_Put_Interface(
+	IN	VOID			*pUsb_Dev,
+	IN	VOID			*intf);
+
+int  RTMP_Usb_AutoPM_Get_Interface(
+	IN	VOID			*pUsb_Dev,
+	IN	VOID			*intf);
+
+#endif /* USB_SUPPORT_SELECTIVE_SUSPEND */
+#endif /* CONFIG_PM */
+#endif /* CONFIG_STA_SUPPORT */
 
 
 

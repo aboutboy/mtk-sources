@@ -187,6 +187,14 @@ ifeq ($(CONFIG_LLTD_SUPPORT),y)
     EXTRA_CFLAGS += -DLLTD_SUPPORT
 endif
 
+ifeq ($(CONFIG_PASSPOINT_R2),y)
+	EXTRA_CFLAGS += -DCONFIG_DOT11U_INTERWORKING -DCONFIG_DOT11V_WNM -DCONFIG_HOTSPOT -DCONFIG_HOTSPOT_R2
+
+	spec_objs += $(SRC_DIR)/common/wnm.o\
+				$(SRC_DIR)/common/gas.o\
+				$(SRC_DIR)/common/hotspot.o
+endif
+
 # FT
 #ifeq ($(CONFIG_RT2860V2_80211R_FT),y)
 #dot11_ft_objs += $(SRC_DIR)/common/ft.o\
@@ -202,6 +210,27 @@ endif
 #                    $(SRC_DIR)/common/rrm_sanity.o\
 #                    $(SRC_DIR)/common/rrm.o
 #endif
+#SNIFFER
+ifeq ($(CONFIG_SNIFFER_SUPPORT),y)
+    EXTRA_CFLAGS += -DCONFIG_SNIFFER_SUPPORT
+
+    spec_objs += $(SRC_DIR)/sniffer/sniffer_radiotap.o\
+                 $(SRC_DIR)/sniffer/sniffer_prism.o
+endif
+
+#CFG
+ifeq ($(CONFIG_CFG80211_SUPPORT),y)
+    EXTRA_CFLAGS += -DRT_CFG80211_SUPPORT -DEXT_BUILD_CHANNEL_LIST
+
+    spec_objs += $(SRC_DIR)/os/linux/cfg80211/cfg80211_scan.o\
+        $(SRC_DIR)/os/linux/cfg80211/cfg80211_rx.o\
+        $(SRC_DIR)/os/linux/cfg80211/cfg80211_tx.o\
+        $(SRC_DIR)/os/linux/cfg80211/cfg80211_inf.o\
+        $(SRC_DIR)/os/linux/cfg80211/cfg80211_ap.o\
+        $(SRC_DIR)/os/linux/cfg80211/cfg80211drv.o\
+                $(SRC_DIR)/os/linux/cfg80211/cfg80211_util.o\
+                $(SRC_DIR)/os/linux/cfg80211/cfg80211.o
+endif
 
 #
 # Common Feature related files
@@ -221,10 +250,7 @@ ifeq ($(CONFIG_BLOCK_NET_IF),y)
 endif
 
 ifeq ($(CONFIG_SINGLE_SKU),y)
-    EXTRA_CFLAGS += -DSINGLE_SKU
-    ifeq ($(CONFIG_RALINK_RT6352),y)
-        EXTRA_CFLAGS += -DSINGLE_SKU_V2
-    endif
+    EXTRA_CFLAGS += -DSINGLE_SKU_V2
 endif
 
 ifeq ($(CONFIG_RT2860V2_AP_VIDEO_TURBINE),y)
@@ -291,7 +317,7 @@ ifeq ($(CONFIG_WDS_SUPPORT),y)
 endif
 
 ifeq ($(CONFIG_APCLI_SUPPORT),y)
-    EXTRA_CFLAGS += -DAPCLI_SUPPORT -DMAT_SUPPORT -DAPCLI_CERT_SUPPORT -DAPCLI_AUTO_CONNECT_SUPPORT -DAPCLI_CONNECTION_TRIAL
+    EXTRA_CFLAGS += -DAPCLI_SUPPORT -DMAT_SUPPORT -DAPCLI_CERT_SUPPORT -DAPCLI_AUTO_CONNECT_SUPPORT -DAPCLI_CONNECTION_TRIAL -DMULTI_APCLI_SUPPORT
 
     ap_objs += $(SRC_DIR)/ap/ap_apcli.o\
             $(SRC_DIR)/ap/ap_apcli_inf.o\
@@ -369,6 +395,11 @@ endif
 
 ifeq ($(CONFIG_AIRPLAY_SUPPORT),y)
     EXTRA_CFLAGS += -DAIRPLAY_SUPPORT
+endif
+
+ifeq ($(CONFIG_BAND_STEERING),y)
+    EXTRA_CFLAGS += -DBAND_STEERING
+    ap_objs +=  $(SRC_DIR)/ap/ap_band_steering.o
 endif
 
 ########################################################

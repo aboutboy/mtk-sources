@@ -255,6 +255,13 @@ endif
 #endif // WAPI_SUPPORT //
 
 
+#ifdef DOT11V_WNM_SUPPORT
+ifeq ($(HAS_DOT11V_WNM_SUPPORT),y)
+obj_cmm += \
+    ../../common/wnm_tlv.o\
+    ../../common/wnm.o
+endif
+#endif // DOT11V_WNM_SUPPORT //
 
 #ifdef DOT11W_PMF_SUPPORT
 ifeq ($(HAS_DOT11W_PMF_SUPPORT),y)
@@ -301,6 +308,14 @@ endif
 
 
 
+#ifdef CONFIG_HOTSPOT
+ifeq ($(HAS_HOTSPOT_SUPPORT),y)
+obj_cmm += \
+		../../common/wnm.o\
+		../../common/gas.o\
+		../../common/hotspot.o
+endif		
+#endif // CONFIG_HOTSPOT //
 
 
 ###############################################################################
@@ -402,6 +417,58 @@ endif
 #
 ###############################################################################
 
+#ifdef CONFIG_STA_SUPPORT
+ifeq ($(RT28xx_MODE), STA)
+obj_sta += \
+	../../sta/assoc.o\
+	../../sta/auth.o\
+	../../sta/auth_rsp.o\
+	../../sta/sync.o\
+	../../sta/sanity.o\
+	../../sta/rtmp_data.o\
+	../../sta/connect.o\
+	../../sta/wpa.o\
+	../../sta/sta_cfg.o\
+	../../sta/sta.o
+
+
+ifeq ($(OSABL),NO)
+obj_sta += ../../os/linux/sta_ioctl.o
+endif
+
+#TODO
+ifeq ($(HAS_CFG80211_SUPPORT),y)
+ifeq ($(HAS_CFG80211_MULTI_STA_SUPPORT),y)
+obj_sta += \
+        ../../ap/ap_apcli.o \
+        ../../ap/apcli_ctrl.o \
+        ../../ap/apcli_sync.o \
+        ../../ap/apcli_auth.o \
+        ../../ap/apcli_assoc.o \
+        ../../ap/ap_apcli_inf.o
+endif #HAS_CFG80211_MULTI_STA_SUPPORT
+
+ifeq ($(HAS_CFG80211_P2P_SUPPORT),y)
+ifeq ($(HAS_CFG80211_P2P_CONCURRENT_DEVICE),y)
+obj_sta += \
+        ../../ap/ap_apcli.o \
+        ../../ap/apcli_ctrl.o \
+        ../../ap/apcli_sync.o \
+        ../../ap/apcli_auth.o \
+        ../../ap/apcli_assoc.o 
+
+ifeq ($(OSABL),NO)
+obj_sta += ../../ap/ap_apcli_inf.o
+endif
+endif
+endif
+endif
+
+MOD_NAME = $(MODULE)_sta
+DAT_PATH = /etc/Wireless/RT$(CHIPSET_DAT)STA
+DAT_FILE_NAME = conf/RT$(CHIPSET_DAT)STA.dat
+endif
+#endif // CONFIG_STA_SUPPORT //
 
 
 ###############################################################################
@@ -410,6 +477,11 @@ endif
 #
 ###############################################################################
 
+#ifdef CONFIG_APSTA_SUPPORT
+ifeq ($(RT28xx_MODE), APSTA)
+MOD_NAME = $(MODULE)_apsta
+endif
+#endif // CONFIG_APSTA_SUPPORT //
 
 
 ###############################################################################
@@ -543,7 +615,193 @@ endif
 endif
 #endif // CONFIG_AP_SUPPORT //
 
+#ifdef CONFIG_STA_SUPPORT
+ifeq ($(RT28xx_MODE), STA)
 
+$(MOD_NAME)-objs := \
+	$(obj_sta)\
+	$(obj_p2p)\
+	$(obj_vht)\
+	$(obj_cmm)\
+	$(obj_ra)\
+	$(obj_wsc)\
+	$(obj_phy)
+
+ifeq ($(OSABL),NO)
+$(MOD_NAME)-objs += \
+	../../common/rt_os_util.o\
+	../../os/linux/sta_ioctl.o\
+	../../os/linux/rt_linux.o\
+	../../os/linux/rt_txrx_hook.o\
+	../../os/linux/rt_main_dev.o
+
+#ifdef CONFIG_TRACE_SUPPORT
+ifeq ($(HAS_TRACE_SUPPORT),y)
+$(MOD_NAME)-objs += \
+	../../os/linux/trace.o\
+
+CFLAGS_trace.o = -I$(RT28xx_OS_DIR)/include/os
+endif
+#endif
+
+ifeq ($(HAS_SNIFFER_SUPPORT),y)
+$(MOD_NAME)-objs += \
+	../../sniffer/sniffer_prism.o\
+	../../sniffer/sniffer_radiotap.o
+endif
+
+else
+$(MOD_NAME)-objs += \
+	../../os/linux/rt_symb.o
+endif
+
+#ifdef ETH_CONVERT
+ifeq ($(HAS_ETH_CONVERT_SUPPORT), y)
+$(MOD_NAME)-objs += \
+	../../common/cmm_mat.o \
+	../../common/cmm_mat_iparp.o \
+	../../common/cmm_mat_pppoe.o \
+	../../common/cmm_mat_ipv6.o
+endif
+#endif // ETH_CONVERT //
+
+
+#ifdef WSC_INCLUDED
+ifeq ($(HAS_WSC_V2),y)
+ifeq ($(HAS_WIDI_SUPPORT),y)
+$(MOD_NAME)-objs += ../../common/l2sd_ta_mod.o
+endif
+
+ifeq ($(HAS_IWSC_SUPPORT),y)
+$(MOD_NAME)-objs += ../../sta/sta_iwsc.o
+endif
+
+endif
+#endif // WSC_INCLUDED //
+
+
+#ifdef CONFIG_MULTI_CHANNEL
+ifeq ($(HAS_MULTI_CHANNEL),y)
+$(MOD_NAME)-objs += ../../common/multi_channel.o
+endif
+#endif /* CONFIG_MULTI_CHANNEL */
+
+
+ifeq ($(HAS_QOS_DLS_SUPPORT),y)
+$(MOD_NAME)-objs += ../../sta/dls.o
+endif
+
+
+
+
+#ifdef WAPI_SUPPORT
+ifeq ($(HAS_WAPI_SUPPORT),y)
+$(MOD_NAME)-objs += \
+	../../common/wapi.o
+endif
+#endif // WAPI_SUPPORT //
+
+#ifdef DOT11V_WNM_SUPPORT
+ifeq ($(HAS_DOT11V_WNM_SUPPORT),y)
+$(MOD_NAME)-objs += \
+	../../common/wnm.o\
+	../../common/wnm_tlv.o
+endif
+#endif // DOT11V_WNM_SUPPORT //
+
+#ifdef CRDA_SUPPORT
+ifeq ($(OSABL),NO)
+ifeq ($(HAS_CFG80211_SUPPORT),y)
+$(MOD_NAME)-objs += \
+	../../os/linux/cfg80211/cfg80211.o \
+	../../os/linux/cfg80211/cfg80211_util.o\
+	../../os/linux/cfg80211/cfg80211_scan.o\
+	../../os/linux/cfg80211/cfg80211_rx.o\
+        ../../os/linux/cfg80211/cfg80211_tx.o\
+        ../../os/linux/cfg80211/cfg80211_inf.o\
+	../../os/linux/cfg80211/cfg80211_p2p.o\
+	../../os/linux/cfg80211/cfg80211_ap.o\
+	../../os/linux/cfg80211/cfg80211drv.o
+ifeq ($(HAS_CFG80211_TDLS_SUPPORT),y)
+$(MOD_NAME)-objs += \
+        ../../os/linux/cfg80211/cfg80211_tdls.o
+endif
+ifeq ($(HAS_CFG80211_P2P_SUPPORT),y)
+$(MOD_NAME)-objs += \
+	../../ap/ap_mbss.o\
+	../../ap/ap.o\
+	../../ap/ap_assoc.o\
+	../../ap/ap_auth.o\
+	../../ap/ap_connect.o\
+	../../ap/ap_mlme.o\
+	../../ap/ap_sanity.o\
+	../../ap/ap_sync.o\
+	../../ap/ap_wpa.o\
+	../../ap/ap_data.o\
+	../../ap/ap_autoChSel.o\
+	../../ap/ap_qload.o\
+	../../ap/ap_cfg.o\
+	../../ap/ap_nps.o\
+	../../os/linux/ap_ioctl.o		
+endif
+
+#TODO
+ifeq ($(HAS_CFG80211_MULTI_STA_SUPPORT),y)
+$(MOD_NAME)-objs += \
+        ../../ap/ap_mbss.o\
+        ../../ap/ap.o\
+        ../../ap/ap_assoc.o\
+        ../../ap/ap_auth.o\
+        ../../ap/ap_connect.o\
+        ../../ap/ap_mlme.o\
+        ../../ap/ap_sanity.o\
+        ../../ap/ap_sync.o\
+        ../../ap/ap_wpa.o\
+        ../../ap/ap_data.o\
+        ../../ap/ap_autoChSel.o\
+        ../../ap/ap_qload.o\
+        ../../ap/ap_cfg.o\
+	../../ap/ap_nps.o\
+        ../../os/linux/ap_ioctl.o
+endif #HAS_CFG80211_MULTI_STA_SUPPORT
+
+endif
+endif
+
+ifeq ($(OSABL),YES)
+ifeq ($(HAS_CFG80211_SUPPORT),y)
+$(MOD_NAME)-objs += \
+	../../os/linux/cfg80211/cfg80211_scan.o\
+	../../os/linux/cfg80211/cfg80211_rx.o\
+        ../../os/linux/cfg80211/cfg80211_tx.o\
+        ../../os/linux/cfg80211/cfg80211_inf.o\
+	../../os/linux/cfg80211/cfg80211_p2p.o\
+	../../os/linux/cfg80211/cfg80211_ap.o\
+	../../os/linux/cfg80211/cfg80211drv.o
+endif
+endif
+#endif // CRDA_SUPPORT //
+
+
+#ifdef CONFIG_MULTI_CHANNEL
+ifeq ($(HAS_MULTI_CHANNEL),y)
+obj_sta += ../../common/multi_channel.o
+endif
+#endif /* CONFIG_MULTI_CHANNEL */
+
+endif
+#endif // CONFIG_STA_SUPPORT //
+
+#ifdef CONFIG_APSTA_SUPPORT
+ifeq ($(RT28xx_MODE), APSTA)
+$(MOD_NAME)-objs := \
+	$(obj_ap)\
+	$(obj_sta)\
+	$(obj_cmm)\
+	$(obj_ra)\
+	$(obj_wsc)
+endif
+#endif // CONFIG_APSTA_SUPPORT //
 
 
 #chip releated

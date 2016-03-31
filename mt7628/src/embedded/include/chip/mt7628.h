@@ -65,6 +65,8 @@ int mt7628_read_chl_pwr(struct _RTMP_ADAPTER *pAd);
 void mt7628_pwrOn(struct _RTMP_ADAPTER *pAd);
 void mt7628_calibration(struct _RTMP_ADAPTER *pAd, UCHAR channel);
 void mt7628_tssi_compensation(struct _RTMP_ADAPTER *pAd, UCHAR channel);
+void mt7628_set_ed_cca(struct _RTMP_ADAPTER *pAd, BOOLEAN enable);
+
 
 #endif /* MT7628 */
 #endif /*__MT7628_H__ */

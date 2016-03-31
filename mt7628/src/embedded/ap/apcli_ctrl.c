@@ -330,6 +330,9 @@ static VOID ApCliTrialConnectTimeoutAction(PRTMP_ADAPTER pAd, MLME_QUEUE_ELEM *p
 	pApCliEntry = &pAd->ApCfg.ApCliTab[ifIndex];
 	pCurrState = &pApCliEntry->CtrlCurrState;
 
+	/* go back to original channel width */
+	if (pAd->CommonCfg.BBPCurrentBW != pAd->hw_cfg.bbp_bw)
+		bbp_set_bw(pAd, pAd->hw_cfg.bbp_bw);
 	AsicSwitchChannel(pAd, pAd->CommonCfg.CentralChannel, TRUE);
 	AsicEnableBssSync(pAd, pAd->CommonCfg.BeaconPeriod);//jump back to origin channel, regenerate beacon.
 	if (pAd->CommonCfg.BBPCurrentBW == BW_40)
@@ -383,6 +386,9 @@ static VOID ApCliTrialPhase2TimeoutAction(PRTMP_ADAPTER pAd, MLME_QUEUE_ELEM *pE
 
 	if (pApCliEntry->TrialCh != pAd->CommonCfg.CentralChannel) {
 		/* Let BBP register at 20MHz */
+		pAd->hw_cfg.bbp_bw = pAd->CommonCfg.BBPCurrentBW;
+		if (pAd->CommonCfg.BBPCurrentBW != BW_20)
+                	bbp_set_bw(pAd, BW_20);
 		AsicDisableSync(pAd);//disable beacon
 		AsicSwitchChannel(pAd, pApCliEntry->TrialCh, TRUE);
 		//andes_switch_channel(pAd, pApCliEntry->TrialCh, 0, 0, 0x202, 0);//woody
@@ -434,6 +440,9 @@ static VOID ApCliTrialConnectRetryTimeoutAction(PRTMP_ADAPTER pAd, MLME_QUEUE_EL
 			pApCliEntry->Enable = FALSE;
 		}
 
+		/* Restore original channel width */
+		if (pAd->CommonCfg.BBPCurrentBW != pAd->hw_cfg.bbp_bw)
+			bbp_set_bw(pAd, pAd->hw_cfg.bbp_bw);
 		AsicSwitchChannel(pAd, pAd->CommonCfg.CentralChannel, TRUE);
 		AsicEnableBssSync(pAd, pAd->CommonCfg.BeaconPeriod);//jump back to origin channel, regenerate beacon.
 		return;
@@ -450,6 +459,8 @@ static VOID ApCliTrialConnectRetryTimeoutAction(PRTMP_ADAPTER pAd, MLME_QUEUE_EL
 
 		//MacTableDeleteEntry(pAd, pApCliEntry->MacTabWCID, APCLI_ROOT_BSSID_GET(pAd, pApCliEntry->MacTabWCID));
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("ApCli_SYNC - %s, jump back to origin channel to wait for User's operation!\n", __func__));
+		if (pAd->CommonCfg.BBPCurrentBW != pAd->hw_cfg.bbp_bw)
+			bbp_set_bw(pAd, pAd->hw_cfg.bbp_bw);
 		AsicSwitchChannel(pAd, pAd->CommonCfg.CentralChannel, TRUE);
 		AsicEnableBssSync(pAd, pAd->CommonCfg.BeaconPeriod);//jump back to origin channel, regenerate beacon.
 		NdisZeroMemory(pAd->ApCfg.ApCliTab[ifIndex].CfgSsid, MAX_LEN_OF_SSID);//cleanup CfgSsid.
@@ -485,6 +496,8 @@ static VOID ApCliTrialConnectRetryTimeoutAction(PRTMP_ADAPTER pAd, MLME_QUEUE_EL
 			ApCliLinkDown(pAd, ifIndex);
 		}
 
+		if (pAd->CommonCfg.BBPCurrentBW != pAd->hw_cfg.bbp_bw)
+			bbp_set_bw(pAd, pAd->hw_cfg.bbp_bw);
 		AsicSwitchChannel(pAd, pAd->CommonCfg.CentralChannel, TRUE);
 		AsicEnableBssSync(pAd, pAd->CommonCfg.BeaconPeriod);//jump back to origin channel, regenerate beacon.
 	}
@@ -1229,6 +1242,16 @@ static VOID ApCliCtrlAssocRspAction(
 	{
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("(%s) apCliIf = %d, Receive Assoc Rsp Success.\n", __FUNCTION__, ifIndex));
 
+#ifdef WPA_SUPPLICANT_SUPPORT
+			    if (pAd->ApCfg.ApCliTab[ifIndex].wpa_supplicant_info.WpaSupplicantUP)
+			    {
+			        ApcliSendAssocIEsToWpaSupplicant(pAd,ifIndex);
+				RtmpOSWrielessEventSend(pAd->net_dev,
+								RT_WLAN_EVENT_CUSTOM,
+								RT_ASSOC_EVENT_FLAG,
+								NULL, NULL, 0);
+			    }
+#endif /* WPA_SUPPLICANT_SUPPORT */                    
 
 #ifdef MAC_REPEATER_SUPPORT
 		ifIndex = (USHORT)(Elem->Priv);
@@ -1535,6 +1558,7 @@ static VOID ApCliCtrlDisconnectReqAction(
 		ifIndex = ((ifIndex - 64) / 16);
 		pAd->ApCfg.ApCliTab[ifIndex].RepeaterCli[CliIdx].CliValid = FALSE;
 		pAd->ApCfg.ApCliTab[ifIndex].RepeaterCli[CliIdx].CliEnable = FALSE;
+		RTMPRemoveRepeaterEntry(pAd, ifIndex, CliIdx);			
 	}
 	else
 #endif /* MAC_REPEATER_SUPPORT */
@@ -1649,6 +1673,7 @@ static VOID ApCliCtrlPeerDeAssocReqAction(
 		ifIndex = ((ifIndex - 64) / 16);
 		pAd->ApCfg.ApCliTab[ifIndex].RepeaterCli[CliIdx].CliValid = FALSE;
 		pAd->ApCfg.ApCliTab[ifIndex].RepeaterCli[CliIdx].CliEnable = FALSE;
+		RTMPRemoveRepeaterEntry(pAd, ifIndex, CliIdx);		
 	}
 	else
 #endif /* MAC_REPEATER_SUPPORT */
@@ -1734,6 +1759,7 @@ static VOID ApCliCtrlDeAssocAction(
 		ifIndex = ((ifIndex - 64) / 16);
 		pAd->ApCfg.ApCliTab[ifIndex].RepeaterCli[CliIdx].CliValid = FALSE;
 		pAd->ApCfg.ApCliTab[ifIndex].RepeaterCli[CliIdx].CliEnable = FALSE;
+		RTMPRemoveRepeaterEntry(pAd, ifIndex, CliIdx);			
 	}
 	else
 #endif /* MAC_REPEATER_SUPPORT */
@@ -1827,6 +1853,7 @@ static VOID ApCliCtrlDeAuthAction(
 		pAd->ApCfg.ApCliTab[ifIndex].RepeaterCli[CliIdx].CliValid = FALSE;
 		pAd->ApCfg.ApCliTab[ifIndex].RepeaterCli[CliIdx].CliEnable = FALSE;
 		//RTMPDelRepeaterCliAsicEntry(pAd, CliIdx);
+		RTMPRemoveRepeaterEntry(pAd, ifIndex, CliIdx);		
 	}
 	else
 #endif /* MAC_REPEATER_SUPPORT */
@@ -1981,7 +2008,7 @@ static VOID ApCliCtrlScanDoneAction(
     		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("Update2040CoexistFrameAndNotify @%s  \n", __FUNCTION__));    
 		for (i=0; i<MAX_LEN_OF_MAC_TABLE; i++)
 		{
-			if (IS_ENTRY_APCLI(&pAd->MacTab.Content[i]) && (pAd->MacTab.Content[i].apidx == ifIndex))
+			if (IS_ENTRY_APCLI(&pAd->MacTab.Content[i]) && (pAd->MacTab.Content[i].func_tb_idx == ifIndex))
 			{
 				Update2040CoexistFrameAndNotify(pAd, i, TRUE);
 			}
@@ -2032,7 +2059,11 @@ static VOID ApCliCtrlTrialConnectAction(
 
 		if (pApCliEntry->TrialCh != pAd->CommonCfg.CentralChannel) {
 			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("(%s) Jump to CH:%d\n", __func__, pApCliEntry->TrialCh));
-			/* Let BBP register at 20MHz*/
+			/* Always use 20Mhz channel width for trial connection */
+			pAd->hw_cfg.bbp_bw = pAd->CommonCfg.BBPCurrentBW;
+			if (pAd->CommonCfg.BBPCurrentBW != BW_20)
+				bbp_set_bw(pAd,BW_20);
+
 			AsicDisableSync(pAd);//disable beacon
 			AsicSwitchChannel(pAd, pApCliEntry->TrialCh, TRUE);
 			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR, ("(%s) set  TrialConnectTimer(%d ms)\n", __func__,TRIAL_TIMEOUT));

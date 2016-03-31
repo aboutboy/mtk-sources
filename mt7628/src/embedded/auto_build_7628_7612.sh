@@ -31,3 +31,19 @@ fi
 if [ -d release ]; then
 	rm -rf release
 fi
+
+if [ -d Release/mt_wifi_auto_build ]; then
+	mv Release/mt_wifi_auto_build mt_wifi
+fi
+
+if [ -d Release/mt_wifi_ap_auto_build ]; then
+    mv Release/mt_wifi_ap_auto_build mt_wifi_ap
+fi
+
+if [ -d Release/mt_wifi_sta_auto_build ]; then
+    mv Release/mt_wifi_sta_auto_build mt_wifi_sta
+fi
+
+if [ -d Release ]; then
+	rm -rf Release
+fi

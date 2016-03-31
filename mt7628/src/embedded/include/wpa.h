@@ -408,10 +408,19 @@ VOID CalculateMIC(
 
 BOOLEAN rtmp_chk_tkip_mic(RTMP_ADAPTER *pAd, MAC_TABLE_ENTRY *pEntry, RX_BLK *pRxBlk);
 
+#ifdef WPA_SUPPLICANT_SUPPORT
+INT WpaCheckEapCode(
+	IN  RTMP_ADAPTER *pAd,
+	IN  UCHAR *pFrame,
+	IN  USHORT FrameLen,
+	IN  USHORT OffSet);
+#endif /* WPA_SUPPLICANT_SUPPORT */
 
 
 RTMP_STRING *GetEapolMsgType(CHAR msg);
 
+#ifdef CONFIG_STA_SUPPORT
+#endif /* CONFIG_STA_SUPPORT */
 
 /* 
  =====================================	

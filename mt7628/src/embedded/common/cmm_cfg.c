@@ -71,6 +71,10 @@ UINT GenerateWpsPinCode(
 		NdisMoveMemory(&macAddr[0], pAd->ApCfg.MBSSID[apidx].wdev.if_addr, MAC_ADDR_LEN);
 	}
 #endif /* CONFIG_AP_SUPPORT */
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+		NdisMoveMemory(&macAddr[0], pAd->CurrentAddress, MAC_ADDR_LEN);
+#endif /* CONFIG_STA_SUPPORT */
 
 	iPin = macAddr[3] * 256 * 256 + macAddr[4] * 256 + macAddr[5];
 
@@ -168,12 +172,6 @@ static UCHAR CFG_WMODE_MAP[]={
 	PHY_11BGN_MIXED, (WMODE_B | WMODE_G | WMODE_GN), /* 9 => B/G/GN mode*/
 	PHY_11AGN_MIXED, (WMODE_G | WMODE_GN | WMODE_A | WMODE_AN), /* 10 => A/AN/G/GN mode, not support B mode */
 	PHY_11N_5G, (WMODE_AN), /* 11 => only N in 5G band */
-#ifdef DOT11_VHT_AC
-	PHY_11VHT_N_ABG_MIXED, (WMODE_B | WMODE_G | WMODE_GN |WMODE_A | WMODE_AN | WMODE_AC), /* 12 => B/G/GN/A/AN/AC mixed*/
-	PHY_11VHT_N_AG_MIXED, (WMODE_G | WMODE_GN |WMODE_A | WMODE_AN | WMODE_AC), /* 13 => G/GN/A/AN/AC mixed , no B mode */
-	PHY_11VHT_N_A_MIXED, (WMODE_A | WMODE_AN | WMODE_AC), /* 14 => A/AC/AN mixed */
-	PHY_11VHT_N_MIXED, (WMODE_AN | WMODE_AC), /* 15 => AC/AN mixed, but no A mode */
-#endif /* DOT11_VHT_AC */
 	PHY_MODE_MAX, WMODE_INVALID /* default phy mode if not match */
 };
 
@@ -318,8 +316,6 @@ INT RT_CfgSetWirelessMode(RTMP_ADAPTER *pAd, RTMP_STRING *arg)
 {
 	LONG cfg_mode;
 	UCHAR wmode, *mode_str;
-#ifdef DOT11_VHT_AC
-#endif /* DOT11_VHT_AC */
 
 	cfg_mode = simple_strtol(arg, 0, 10);
 
@@ -333,8 +329,6 @@ INT RT_CfgSetWirelessMode(RTMP_ADAPTER *pAd, RTMP_STRING *arg)
 		return FALSE;
 	}
 
-#ifdef DOT11_VHT_AC
-#endif /* DOT11_VHT_AC */
 
 	if (wmode_band_equal(pAd->CommonCfg.PhyMode, wmode) == TRUE)
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("wmode_band_equal(): Band Equal!\n"));
@@ -821,6 +815,16 @@ INT RTMP_COM_IoctlHandle(
 					wdev = &pAd->ApCfg.MBSSID[MAIN_MBSSID].wdev;
 				}
 #endif /* CONFIG_AP_SUPPORT */
+#ifdef CONFIG_STA_SUPPORT
+				if (pAd->OpMode == OPMODE_STA) {
+					pAd->StaCfg.wdev.if_dev = pData;
+					pAd->StaCfg.wdev.func_dev = (void *)&pAd->StaCfg;
+					pAd->StaCfg.wdev.func_idx = 0;
+					pAd->StaCfg.wdev.sys_handle = (void *)pAd;
+					RTMP_OS_NETDEV_SET_WDEV(pData, &pAd->StaCfg.wdev);
+					wdev = &pAd->StaCfg.wdev;
+				}
+#endif /* CONFIG_STA_SUPPORT */
 				if (wdev) {
 					if (rtmp_wdev_idx_reg(pAd, wdev) < 0) {
 						MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR, ("Assign wdev idx for %s failed, free net device!\n",
@@ -881,6 +885,133 @@ INT RTMP_COM_IoctlHandle(
 			RTMP_CLEAR_PSFLAG(pAd, fRTMP_PS_MCU_SLEEP);
 			break;
 
+#ifdef CONFIG_STA_SUPPORT
+#ifdef CONFIG_PM
+#ifdef USB_SUPPORT_SELECTIVE_SUSPEND
+                case CMD_RTPRIV_IOCTL_USB_DEV_GET:
+                /* get USB DEV */
+                {
+                        VOID **ppUsb_Dev = (VOID **)pData;
+                        *ppUsb_Dev = (VOID *)(pObj->pUsb_Dev);
+                }
+                        break;
+
+                case CMD_RTPRIV_IOCTL_USB_INTF_GET:
+                /* get USB INTF */
+                {
+                        VOID **ppINTF = (VOID **)pData;
+                        *ppINTF = (VOID *)(pObj->intf);
+                }
+                        break;
+
+		case CMD_RTPRIV_IOCTL_ADAPTER_SUSPEND_SET:
+		/* set driver state to fRTMP_ADAPTER_SUSPEND */
+			RTMP_SET_FLAG(pAd,fRTMP_ADAPTER_SUSPEND);
+			break;
+
+		case CMD_RTPRIV_IOCTL_ADAPTER_SUSPEND_CLEAR:
+		/* clear driver state to fRTMP_ADAPTER_SUSPEND */
+			RTMP_CLEAR_FLAG(pAd,fRTMP_ADAPTER_SUSPEND);
+			RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_MCU_SEND_IN_BAND_CMD);
+			RTMP_CLEAR_PSFLAG(pAd, fRTMP_PS_MCU_SLEEP);
+			break;
+
+		case CMD_RTPRIV_IOCTL_ADAPTER_SEND_DISSASSOCIATE:
+		/* clear driver state to fRTMP_ADAPTER_SUSPEND */
+			if (INFRA_ON(pAd) &&
+			(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST)))
+			{
+				MLME_DISASSOC_REQ_STRUCT	DisReq;
+				MLME_QUEUE_ELEM *MsgElem;
+				os_alloc_mem(NULL, (UCHAR **)&MsgElem, sizeof(MLME_QUEUE_ELEM));
+				if (MsgElem)
+				{
+					COPY_MAC_ADDR(DisReq.Addr, pAd->CommonCfg.Bssid);
+					DisReq.Reason =  REASON_DEAUTH_STA_LEAVING;
+					MsgElem->Machine = ASSOC_STATE_MACHINE;
+					MsgElem->MsgType = MT2_MLME_DISASSOC_REQ;
+					MsgElem->MsgLen = sizeof(MLME_DISASSOC_REQ_STRUCT);
+					NdisMoveMemory(MsgElem->Msg, &DisReq, sizeof(MLME_DISASSOC_REQ_STRUCT));
+					/* Prevent to connect AP again in STAMlmePeriodicExec*/
+					pAd->MlmeAux.AutoReconnectSsidLen= 32;
+					NdisZeroMemory(pAd->MlmeAux.AutoReconnectSsid, pAd->MlmeAux.AutoReconnectSsidLen);
+					pAd->Mlme.CntlMachine.CurrState = CNTL_WAIT_OID_DISASSOC;
+					MlmeDisassocReqAction(pAd, MsgElem);
+					os_free_mem(NULL, MsgElem);
+				}
+				/*				RtmpusecDelay(1000);*/
+				RtmpOSWrielessEventSend(pAd->net_dev, RT_WLAN_EVENT_CGIWAP, -1, NULL, NULL, 0);
+			}
+			break;
+
+		case CMD_RTPRIV_IOCTL_ADAPTER_SUSPEND_TEST:
+		/* test driver state to fRTMP_ADAPTER_SUSPEND */
+			*(UCHAR *)pData = RTMP_TEST_FLAG(pAd,fRTMP_ADAPTER_SUSPEND);
+			break;
+
+		case CMD_RTPRIV_IOCTL_ADAPTER_IDLE_RADIO_OFF_TEST:
+		/* test driver state to fRTMP_ADAPTER_IDLE_RADIO_OFF */
+			*(UCHAR *)pData = RTMP_TEST_FLAG(pAd,fRTMP_ADAPTER_IDLE_RADIO_OFF);
+			break;
+
+		case CMD_RTPRIV_IOCTL_ADAPTER_RT28XX_USB_ASICRADIO_OFF:
+			ASIC_RADIO_OFF(pAd, SUSPEND_RADIO_OFF);
+			break;
+
+		case CMD_RTPRIV_IOCTL_ADAPTER_RT28XX_USB_ASICRADIO_ON:
+			ASIC_RADIO_ON(pAd, RESUME_RADIO_ON);
+			break;
+
+#endif /* USB_SUPPORT_SELECTIVE_SUSPEND */
+
+#if (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT)
+		case CMD_RTPRIV_IOCTL_ADAPTER_RT28XX_WOW_STATUS:
+			*(UCHAR *)pData = (UCHAR)pAd->WOW_Cfg.bEnable;
+			break;
+
+		case CMD_RTPRIV_IOCTL_ADAPTER_RT28XX_WOW_ENABLE:
+			ASIC_WOW_ENABLE(pAd);
+			break;
+
+		case CMD_RTPRIV_IOCTL_ADAPTER_RT28XX_WOW_DISABLE:
+			ASIC_WOW_DISABLE(pAd);
+			break;
+#endif /* (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT) */
+#endif /* CONFIG_PM */
+
+		case CMD_RTPRIV_IOCTL_AP_BSSID_GET:
+			if (pAd->StaCfg.wdev.PortSecured == WPA_802_1X_PORT_NOT_SECURED)
+				NdisCopyMemory(pData, pAd->MlmeAux.Bssid, 6);
+			else
+				return NDIS_STATUS_FAILURE;
+			break;
+
+#ifdef CONFIG_PM
+#ifdef USB_SUPPORT_SELECTIVE_SUSPEND
+		case CMD_RTPRIV_IOCTL_ADAPTER_SUSPEND_SET:
+		/* set driver state to fRTMP_ADAPTER_SUSPEND */
+			RTMP_SET_FLAG(pAd,fRTMP_ADAPTER_SUSPEND);
+			break;
+
+		case CMD_RTPRIV_IOCTL_ADAPTER_SUSPEND_CLEAR:
+		/* clear driver state to fRTMP_ADAPTER_SUSPEND */
+			RTMP_CLEAR_FLAG(pAd,fRTMP_ADAPTER_SUSPEND);
+			break;
+#endif /* USB_SUPPORT_SELECTIVE_SUSPEND */
+#endif /* CONFIG_PM */
+
+		case CMD_RTPRIV_IOCTL_ADAPTER_RT28XX_USB_ASICRADIO_OFF:
+		/* RT28xxUsbAsicRadioOff */
+			//RT28xxUsbAsicRadioOff(pAd);
+			ASIC_RADIO_OFF(pAd, SUSPEND_RADIO_OFF);
+			break;
+
+		case CMD_RTPRIV_IOCTL_ADAPTER_RT28XX_USB_ASICRADIO_ON:
+		/* RT28xxUsbAsicRadioOn */
+			//RT28xxUsbAsicRadioOn(pAd);
+			ASIC_RADIO_ON(pAd, RESUME_RADIO_ON);
+			break;
+#endif /* CONFIG_STA_SUPPORT */
 
 		case CMD_RTPRIV_IOCTL_SANITY_CHECK:
 		/* sanity check before IOCTL */
@@ -901,6 +1032,25 @@ INT RTMP_COM_IoctlHandle(
 		/* get channel number */
 			*(ULONG *)pData = pAd->CommonCfg.Channel;
 			break;
+#ifdef CONFIG_SNIFFER_SUPPORT
+		case CMD_RTPRIV_IOCTL_SNIFF_INIT:
+			Monitor_Init(pAd, pData);
+			break;
+
+		case CMD_RTPRIV_IOCTL_SNIFF_OPEN:
+			if (Monitor_Open(pAd, pData) != TRUE)
+				return NDIS_STATUS_FAILURE;
+			break;
+
+		case CMD_RTPRIV_IOCTL_SNIFF_CLOSE:
+			if (Monitor_Close(pAd, pData) != TRUE)
+				return NDIS_STATUS_FAILURE;
+			break;
+
+		case CMD_RTPRIV_IOCTL_SNIFF_REMOVE:
+			Monitor_Remove(pAd);
+			break;
+#endif /*CONFIG_SNIFFER_SUPPORT*/
 
 
 
@@ -1010,6 +1160,10 @@ INT RTMP_COM_IoctlHandle(
 			// TODO: Shiang-usw, this function looks have some problem, need to revise!
 			if (VIRTUAL_IF_NUM(pAd) == 0)
 			{
+				ULONG start, end, diff_ms;
+				/* Get the current time for calculating startup time */
+				NdisGetSystemUpTime(&start);
+				
 				VIRTUAL_IF_INC(pAd);
 				if (pInfConf->rt28xx_open(pAd->net_dev) != 0)
 				{
@@ -1017,6 +1171,11 @@ INT RTMP_COM_IoctlHandle(
 					MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("rt28xx_open return fail!\n"));
 					return NDIS_STATUS_FAILURE;
 				}
+				
+				/* Get the current time for calculating startup time */
+				NdisGetSystemUpTime(&end); diff_ms = (end-start)*1000/OS_HZ;
+				DBGPRINT(RT_DEBUG_ERROR, ("WiFi Startup Cost (%s): %lu.%03lus\n",
+						RTMP_OS_NETDEV_GET_DEVNAME(pAd->net_dev),diff_ms/1000,diff_ms%1000));
 			}
 			else
 			{
@@ -1137,6 +1296,12 @@ INT RTMP_COM_IoctlHandle(
 			pStats->noise = 0;
 			pStats->pStats = pAd->iw_stats;
 
+#ifdef CONFIG_STA_SUPPORT
+			if (pAd->OpMode == OPMODE_STA)
+			{
+				CurOpMode = OPMODE_STA;
+			}
+#endif /* CONFIG_STA_SUPPORT */
 
 			/*check if the interface is down*/
 			if(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_INTERRUPT_IN_USE))
@@ -1165,6 +1330,10 @@ INT RTMP_COM_IoctlHandle(
 			}
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+			if (CurOpMode == OPMODE_STA)
+				pStats->qual = ((pAd->Mlme.ChannelQuality * 12)/10 + 10);
+#endif /* CONFIG_STA_SUPPORT */
 #ifdef CONFIG_AP_SUPPORT
 			if (CurOpMode == OPMODE_AP)
 			{
@@ -1178,6 +1347,15 @@ INT RTMP_COM_IoctlHandle(
 			if (pStats->qual > 100)
 				pStats->qual = 100;
 
+#ifdef CONFIG_STA_SUPPORT
+			if (CurOpMode == OPMODE_STA)
+			{
+				pStats->level =
+					RTMPMaxRssi(pAd, pAd->StaCfg.RssiSample.AvgRssi[0],
+									pAd->StaCfg.RssiSample.AvgRssi[1],
+									pAd->StaCfg.RssiSample.AvgRssi[2]);
+			}
+#endif /* CONFIG_STA_SUPPORT */
 #ifdef CONFIG_AP_SUPPORT
 			if (CurOpMode == OPMODE_AP)
 			{
@@ -1196,6 +1374,13 @@ INT RTMP_COM_IoctlHandle(
 										RTMPMinSnr(pAd, pAd->ApCfg.RssiSample.AvgSnr[0],
 										pAd->ApCfg.RssiSample.AvgSnr[1]);
 #endif /* CONFIG_AP_SUPPORT */
+#ifdef CONFIG_STA_SUPPORT
+			pStats->noise = RTMPMaxRssi(pAd, pAd->StaCfg.RssiSample.AvgRssi[0],
+										pAd->StaCfg.RssiSample.AvgRssi[1],
+										pAd->StaCfg.RssiSample.AvgRssi[2]) -
+										RTMPMinSnr(pAd, pAd->StaCfg.RssiSample.AvgSnr[0],
+										pAd->StaCfg.RssiSample.AvgSnr[1]);
+#endif /* CONFIG_STA_SUPPORT */
 		}
 			break;
 
@@ -1339,6 +1524,16 @@ INT Set_SiteSurvey_Proc(RTMP_ADAPTER *pAd, RTMP_STRING *arg)
 		return -ENETDOWN;
 	}
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		if (MONITOR_ON(pAd))
+    	{
+        	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("!!! Driver is in Monitor Mode now !!!\n"));
+        	return -EINVAL;
+    	}
+	}
+#endif // CONFIG_STA_SUPPORT //
 
     NdisZeroMemory(&Ssid, sizeof(NDIS_802_11_SSID));
 
@@ -1368,6 +1563,21 @@ INT Set_SiteSurvey_Proc(RTMP_ADAPTER *pAd, RTMP_STRING *arg)
 #endif /* AP_SCAN_SUPPORT */
 #endif // CONFIG_AP_SUPPORT //
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		Ssid.SsidLength = 0;
+		if ((arg != NULL) &&
+			(strlen(arg) <= MAX_LEN_OF_SSID))
+		{
+			RTMPMoveMemory(Ssid.Ssid, arg, strlen(arg));
+			Ssid.SsidLength = strlen(arg);
+		}
+
+		pAd->StaCfg.bSkipAutoScanConn = TRUE;
+		StaSiteSurvey(pAd, &Ssid, SCAN_ACTIVE);
+	}
+#endif // CONFIG_STA_SUPPORT //
 
 	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("Set_SiteSurvey_Proc\n"));
 
@@ -1729,11 +1939,268 @@ INT SetPSEWatchDog_Proc(RTMP_ADAPTER *pAd, RTMP_STRING *arg)
 	{
 		DumpPseInfo(pAd);
 	}
-
+#ifdef DMA_RESET_SUPPORT	
+	else if (Dbg == 4)
+	{
+		pAd->bcn_reset_en=TRUE;
+	}
+	else if (Dbg == 5)
+	{
+		pAd->bcn_reset_en=FALSE;
+	}	
+#endif /* DMA_RESET_SUPPORT */
 	return TRUE;
 }
 #endif
+INT SetPsmWatchDog_Proc(RTMP_ADAPTER *pAd, RTMP_STRING *arg)
+{
+	UINT32 val = 0;
+	val = simple_strtol(arg, 0, 10);
 
+	pAd->PsmWatchDogDisabled = val;
+
+	return TRUE;
+}
+
+INT SetPsmDbg_Proc(RTMP_ADAPTER *pAd, RTMP_STRING *arg)
+{
+        UINT32 wcid = 0, Value = 0;
+	MAC_TABLE_ENTRY *pEntry = NULL;
+        STA_TR_ENTRY *tr_entry = NULL;
+	struct wtbl_entry tb_entry;
+        union WTBL_1_DW3 *dw3 = (union WTBL_1_DW3 *)&tb_entry.wtbl_1.wtbl_1_d3.word;
+
+    	wcid = simple_strtol(arg, 0, 10);
+	if (wcid < MAX_LEN_OF_MAC_TABLE)
+	{ 
+		pEntry = &pAd->MacTab.Content[wcid];
+        	tr_entry = &pAd->MacTab.tr_entry[wcid];
+	
+		if (IS_ENTRY_CLIENT(pEntry) && (pEntry->Sst == SST_ASSOC))
+                {
+			 NdisZeroMemory(&tb_entry, sizeof(tb_entry));
+                         if (mt_wtbl_get_entry234(pAd, wcid, &tb_entry) == FALSE)
+                         {
+                         	DBGPRINT(RT_DEBUG_ERROR, ("%s():Cannot found WTBL2/3/4\n",__FUNCTION__));
+                         	goto err;
+                         }
+                         RTMP_IO_READ32(pAd, tb_entry.wtbl_addr[0]+12, &dw3->word);
+
+                         MAC_IO_READ32(pAd, WTBL1OR, &Value);
+                         Value |= PSM_W_FLAG;
+                         MAC_IO_WRITE32(pAd, WTBL1OR, Value);
+
+                         dw3->field.psm = 0;
+                         HW_IO_WRITE32(pAd, tb_entry.wtbl_addr[0] + 12, dw3->word);
+
+                         pEntry->PsMode = 0;
+                         tr_entry->PsMode = 0;
+
+                         MAC_IO_READ32(pAd, WTBL1OR, &Value);
+                         Value &= ~PSM_W_FLAG;
+                         MAC_IO_WRITE32(pAd, WTBL1OR, Value);
+                         pEntry->PsmResetCount++;
+
+			 NdisZeroMemory(&tb_entry, sizeof(tb_entry));
+                         if (mt_wtbl_get_entry234(pAd, wcid, &tb_entry) == FALSE)
+                         {
+                         	DBGPRINT(RT_DEBUG_ERROR, ("%s():Cannot found WTBL2/3/4\n",__FUNCTION__));
+                                goto err;
+                         }
+
+                         RTMP_IO_READ32(pAd, tb_entry.wtbl_addr[0]+12, &dw3->word);
+                         DBGPRINT(RT_DEBUG_OFF, ("wcid %d on PSM RES ==> %d\n", wcid, dw3->field.psm));
+		}
+		else
+			goto err;	
+
+	}
+	else
+		goto err;
+
+        return TRUE;
+err:
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, (":%s: can't set the psm dbg\n", __FUNCTION__));
+
+	return TRUE;
+}
+
+INT SetTxRxCr_Proc(RTMP_ADAPTER *pAd, RTMP_STRING *arg)
+{
+	UINT32 Dbg;
+	UINT32 mac_val;
+	UINT32 idx;
+    	Dbg = simple_strtol(arg, 0, 10);
+
+	if (Dbg == 0)
+	{
+		RTMP_IO_WRITE32(pAd, 0x14108, 0x80);
+		RTMP_IO_WRITE32(pAd, 0x14108, 0xc0);
+		RTMP_IO_WRITE32(pAd, 0x14108, 0x80);
+
+		RTMP_IO_READ32(pAd, 0x2c030, &mac_val);
+		printk("0x60330030=0x%x\n",mac_val);
+		RTMP_IO_READ32(pAd, 0x2c01c, &mac_val);
+		printk("0x6033001C=0x%x\n",mac_val);
+	}
+	else if (Dbg == 1)
+	{
+		printk("=============================================\n");
+		printk("RX Status Counter\n");	
+		RTMP_IO_READ32(pAd, 0x1410c, &mac_val);
+		printk("0x6020410C=0x%x\n",mac_val);	
+
+		RTMP_IO_READ32(pAd, 0x14110, &mac_val);
+		printk("0x60204110=0x%x\n",mac_val);
+
+		RTMP_IO_READ32(pAd, 0x14114, &mac_val);
+		printk("0x60204114=0x%x\n",mac_val);
+
+		RTMP_IO_READ32(pAd, 0x1411c, &mac_val);
+		printk("0x6020411C=0x%x\n",mac_val);
+
+		RTMP_IO_READ32(pAd, 0x14120, &mac_val);
+		printk("0x60204120=0x%x\n",mac_val);	
+
+
+		RTMP_IO_READ32(pAd, 0x2c030, &mac_val);
+		printk("0x60330030=0x%x\n",mac_val);
+		RTMP_IO_READ32(pAd, 0x2c01c, &mac_val);
+		printk("0x6033001C=0x%x\n",mac_val);
+
+		
+		printk("=============================================\n");
+		printk("CCA Status\n");	
+		RTMP_IO_WRITE32(pAd, 0x20014, 0x1F);
+		RTMP_IO_WRITE32(pAd, 0x20018, 0x07070707);
+		RTMP_IO_WRITE32(pAd, 0x2004c, 0x02021919);
+
+		RTMP_IO_READ32(pAd, 0x20024, &mac_val);
+		printk("0x60000024=0x%x\n",mac_val);	
+		printk("=============================================\n");
+
+
+		for (idx=0;idx<10;idx++)
+		{
+			RTMP_IO_READ32(pAd, 0x21518, &mac_val);
+			printk("0x60120118[%d]=0x%08x    ",idx, mac_val);	
+			if (idx==4)
+				printk("\n");	
+		}
+		printk("\n");	
+		
+		RTMP_IO_WRITE32(pAd, 0x20014, 0x1f);
+		RTMP_IO_WRITE32(pAd, 0x20014, 0x07070707);
+
+		RTMP_IO_WRITE32(pAd, 0x2004c, 0x00000101);
+		printk("write 0x60000024=0x00000101\n");	
+		for (idx=0;idx<10;idx++)
+		{
+			RTMP_IO_READ32(pAd, 0x20024, &mac_val);
+			printk("0x60000024[%d]=0x%08x    ",idx, mac_val);	
+			if (idx==4)
+				printk("\n");	
+		}
+		printk("\n");	
+		
+		RTMP_IO_WRITE32(pAd, 0x2004c, 0x02021919);
+		printk("write 0x60000024=0x02021919\n");	
+		for (idx=0;idx<10;idx++)
+		{
+			RTMP_IO_READ32(pAd, 0x20024, &mac_val);
+			printk("0x60000024[%d]=0x%08x    ",idx, mac_val);	
+			if (idx==4)
+				printk("\n");	
+		}	
+		printk("\n");	
+		
+		RTMP_IO_WRITE32(pAd, 0x2004c, 0x10101212);
+		printk("write 0x60000024=0x10101212\n");	
+		for (idx=0;idx<10;idx++)
+		{
+			RTMP_IO_READ32(pAd, 0x20024, &mac_val);
+			printk("0x60000024[%d]=0x%08x    ",idx, mac_val);	
+			if (idx==4)
+				printk("\n");
+		}
+		printk("\n");	
+		
+		RTMP_IO_WRITE32(pAd, 0x2004c, 0x00000B0B);
+		printk("write 0x60000024=0x00000B0B\n");	
+		for (idx=0;idx<10;idx++)
+		{
+			RTMP_IO_READ32(pAd, 0x20024, &mac_val);
+			printk("0x60000024[%d]=0x%08x    ",idx, mac_val);	
+			if (idx==4)
+				printk("\n");	
+		}	
+		printk("\n");	
+		printk("=============================================\n");
+
+		RTMP_IO_WRITE32(pAd, 0x2004c, 0x13131414);
+		RTMP_IO_READ32(pAd, 0x20024, &mac_val);	
+		printk("0x60000024[0x13131414]=0x%08x    ", mac_val);	
+		RTMP_IO_WRITE32(pAd, 0x2004c, 0x1A1A1B1B);
+		RTMP_IO_READ32(pAd, 0x20024, &mac_val);	
+		printk("0x60000024[0x1A1A1B1B]=0x%08x    ", mac_val);		
+		RTMP_IO_WRITE32(pAd, 0x2004c, 0x16161D1D);
+		RTMP_IO_READ32(pAd, 0x20024, &mac_val);	
+		printk("0x60000024[0x16161D1D]=0x%08x    ", mac_val);	
+		printk("\n");	
+
+		RTMP_IO_WRITE32(pAd, 0x2004c, 0x26262727);
+		RTMP_IO_READ32(pAd, 0x20024, &mac_val);	
+		printk("0x60000024[0x26262727]=0x%08x    ", mac_val);			
+		RTMP_IO_WRITE32(pAd, 0x2004c, 0x28282929);
+		RTMP_IO_READ32(pAd, 0x20024, &mac_val);	
+		printk("0x60000024[0x28282929]=0x%08x    ", mac_val);	
+		RTMP_IO_WRITE32(pAd, 0x2004c, 0x2A2A2B2B);
+		RTMP_IO_READ32(pAd, 0x20024, &mac_val);	
+		printk("0x60000024[0x2A2A2B2B]=0x%08x    ", mac_val);	
+		printk("\n");	
+		printk("=============================================\n");
+
+		RTMP_IO_READ32(pAd, 0x21710, &mac_val);	
+		printk("0x60130110=0x%08x    ", mac_val);	
+
+		RTMP_IO_READ32(pAd, 0x21714, &mac_val);	
+		printk("0x60130114=0x%08x    ", mac_val);		
+
+		RTMP_IO_READ32(pAd, 0x21718, &mac_val);	
+		printk("0x60130118=0x%08x    ", mac_val);
+		printk("\n");
+
+		RTMP_IO_READ32(pAd, 0x2171c, &mac_val);	
+		printk("0x60130118=0x%08x    ", mac_val);
+
+		RTMP_IO_READ32(pAd, 0x21720, &mac_val);	
+		printk("0x60130120=0x%08x    ", mac_val);	
+
+		RTMP_IO_READ32(pAd, 0x21724, &mac_val);	
+		printk("0x60130124=0x%08x    ", mac_val);
+		printk("\n");
+		RTMP_IO_READ32(pAd, 0x21728, &mac_val);	
+		printk("0x60130128=0x%08x    ", mac_val);
+		printk("\n");	
+		printk("=============================================\n");
+
+		RTMP_IO_WRITE32(pAd, 0x20014, 0x1f);
+		RTMP_IO_WRITE32(pAd, 0x20018, 0x05050505);
+
+		RTMP_IO_WRITE32(pAd, 0x2004c, 0x85858686);
+		RTMP_IO_READ32(pAd, 0x20024, &mac_val);	
+		printk("0x60000024[0x85858686]=0x%08x\n", mac_val);	
+
+		RTMP_IO_WRITE32(pAd, 0x20018, 0x05050404);
+		RTMP_IO_WRITE32(pAd, 0x2004c, 0x81812A2A);
+		RTMP_IO_READ32(pAd, 0x20024, &mac_val);	
+		printk("0x60000024[0x81812A2A]=0x%08x\n", mac_val);
+		printk("\n\n\n\n\n\n\n\n\n\n");	
+		printk("=============================================\n");				
+	}
+	
+	return TRUE;
+}
 
 INT set_fw_log(RTMP_ADAPTER *pAd, RTMP_STRING *arg)
 {
@@ -2048,10 +2515,29 @@ INT Set_themal_sensor(RTMP_ADAPTER *pAd, RTMP_STRING *arg)
 	UINT32 temperature=0; 
 	value = simple_strtol(arg, 0, 10);
 
-	if ((value == 0) || (value == 1))
+	if ((value == 0) || (value == 1)) {
+#if defined(MT7603) || defined(MT7628)
+		temperature = MtAsicGetThemalSensor(pAd, value);
+		DBGPRINT(RT_DEBUG_OFF, ("%s: ThemalSensor = 0x%x\n", __FUNCTION__, temperature));
+#else
 		CmdGetThermalSensorResult(pAd, value,&temperature);
-	else
+#endif /* MT7603 ||MT7628  */
+	} else
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, (":%s: 0: get temperature; 1: get adc\n", __FUNCTION__));
+
+	return TRUE;
+}
+
+
+INT Set_rx_pspoll_filter_proc(RTMP_ADAPTER *pAd, RTMP_STRING *arg)
+{
+	UINT32 value;	
+	value = simple_strtol(arg, 0, 10);
+
+	pAd->rx_pspoll_filter = value;
+	MtAsicSetRxPspollFilter(pAd, pAd->rx_pspoll_filter);
+
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, (":%s: rx_pspoll_filter=%d\n", __FUNCTION__, pAd->rx_pspoll_filter));
 
 	return TRUE;
 }
@@ -2080,4 +2566,22 @@ INT SetSKUEnable_Proc(RTMP_ADAPTER *pAd, RTMP_STRING *arg)
 }
 #endif /* SINGLE_SKU_V2 */
 #endif /* MT_MAC */
+
+/* run-time turn EDCCA on/off */
+INT Set_ed_chk_proc(RTMP_ADAPTER *pAd, RTMP_STRING *arg)
+{
+	UINT ed_chk = simple_strtol(arg, 0, 10);
+	
+	DBGPRINT(RT_DEBUG_OFF, ("%s()::ed_chk=%d\n", 
+		__FUNCTION__, ed_chk));
+
+	if (ed_chk != 0)
+		RTMP_CHIP_ASIC_SET_EDCCA(pAd, TRUE);
+	else
+		RTMP_CHIP_ASIC_SET_EDCCA(pAd, FALSE);
+	
+	return TRUE;
+}
+
+
 

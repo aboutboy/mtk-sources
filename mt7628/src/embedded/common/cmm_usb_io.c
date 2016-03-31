@@ -112,6 +112,16 @@ NTSTATUS RTUSB_VendorRequest(
 		return NDIS_STATUS_FAILURE;
 	}
 
+#ifdef CONFIG_STA_SUPPORT
+#ifdef CONFIG_PM
+#ifdef USB_SUPPORT_SELECTIVE_SUSPEND
+	if(RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_SUSPEND))
+	{
+		return NDIS_STATUS_FAILURE;
+	}
+#endif /* USB_SUPPORT_SELECTIVE_SUSPEND */
+#endif /* CONFIG_PM */
+#endif /* CONFIG_STA_SUPPORT */
 
 	if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST))
 	{
@@ -263,6 +273,33 @@ NTSTATUS CheckGPIOHdlr(RTMP_ADAPTER *pAd, PCmdQElmt CMDQelmt)
 		}
 #endif /* CONFIG_ATE */
 
+#ifdef CONFIG_STA_SUPPORT
+		IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+		{
+			UINT32 data;
+			
+			/* Read GPIO pin2 as Hardware controlled radio state*/
+			RTMP_IO_READ32( pAd, GPIO_CTRL_CFG, &data);
+			pAd->StaCfg.bHwRadio = (data & 0x04) ? TRUE : FALSE;
+
+			if (pAd->StaCfg.bRadio != (pAd->StaCfg.bHwRadio && pAd->StaCfg.bSwRadio))
+			{
+				pAd->StaCfg.bRadio = (pAd->StaCfg.bHwRadio && pAd->StaCfg.bSwRadio);
+				DBGPRINT_RAW(DBG_CAT_ALL, DBG_LVL_ERROR, ("!!! Radio %s !!!\n",
+								(pAd->StaCfg.bRadio == TRUE ? "On" : "Off")));
+				if (pAd->StaCfg.bRadio == TRUE)
+				{
+					MlmeRadioOn(pAd);
+					pAd->ExtraInfo = EXTRA_INFO_CLEAR;
+				}
+				else
+				{
+					MlmeRadioOff(pAd);
+					pAd->ExtraInfo = HW_RADIO_OFF;
+				}
+			}
+		}
+#endif /* CONFIG_STA_SUPPORT */
 
 	return NDIS_STATUS_SUCCESS;
 }
@@ -445,6 +482,13 @@ static NTSTATUS ResetBulkInHdlr(IN PRTMP_ADAPTER pAd, IN PCmdQElmt CMDQelmt)
 
 	DBGPRINT_RAW(DBG_CAT_ALL, DBG_LVL_TRACE, ("CmdThread : CMDTHREAD_RESET_BULK_IN === >\n"));
 
+#ifdef CONFIG_STA_SUPPORT
+	if(RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_IDLE_RADIO_OFF))
+	{
+		RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_BULKIN_RESET);
+		return NDIS_STATUS_SUCCESS;
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef CONFIG_ATE
 	if (ATE_ON(pAd))
@@ -688,6 +732,13 @@ static NTSTATUS SetAsicPairwiseKeyHdlr(IN PRTMP_ADAPTER pAd, IN PCmdQElmt CMDQel
 	return NDIS_STATUS_SUCCESS;
 }
 
+#ifdef CONFIG_STA_SUPPORT
+static NTSTATUS SetPortSecuredHdlr(IN PRTMP_ADAPTER pAd, IN PCmdQElmt CMDQelmt)
+{
+	STA_PORT_SECURED(pAd);
+	return NDIS_STATUS_SUCCESS;
+}
+#endif /* CONFIG_STA_SUPPORT */
 
 
 static NTSTATUS RemovePairwiseKeyHdlr(IN PRTMP_ADAPTER pAd, IN PCmdQElmt CMDQelmt)
@@ -746,6 +797,56 @@ static NTSTATUS _802_11_CounterMeasureHdlr(IN PRTMP_ADAPTER pAd, IN PCmdQElmt CM
 #endif /* CONFIG_AP_SUPPORT */
 
 
+#ifdef CONFIG_STA_SUPPORT
+static NTSTATUS SetPSMBitHdlr(IN PRTMP_ADAPTER pAd, IN PCmdQElmt CMDQelmt)
+{
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		USHORT *pPsm = (USHORT *)CMDQelmt->buffer;
+		MlmeSetPsmBit(pAd, *pPsm);
+	}
+
+	return NDIS_STATUS_SUCCESS;
+}
+
+
+static NTSTATUS ForceWakeUpHdlr(IN PRTMP_ADAPTER pAd, IN PCmdQElmt CMDQelmt)
+{
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+		AsicForceWakeup(pAd, TRUE);
+
+	return NDIS_STATUS_SUCCESS;
+}
+
+
+static NTSTATUS ForceSleepAutoWakeupHdlr(IN PRTMP_ADAPTER pAd, IN PCmdQElmt CMDQelmt)
+{
+	USHORT  TbttNumToNextWakeUp;
+	USHORT  NextDtim = pAd->StaCfg.DtimPeriod;
+	ULONG   Now;
+
+	NdisGetSystemUpTime(&Now);
+	NextDtim -= (USHORT)(Now - pAd->StaCfg.LastBeaconRxTime)/pAd->CommonCfg.BeaconPeriod;
+
+	TbttNumToNextWakeUp = pAd->StaCfg.DefaultListenCount;
+	if (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_RECEIVE_DTIM) && (TbttNumToNextWakeUp > NextDtim))
+		TbttNumToNextWakeUp = NextDtim;
+
+	RTMP_SET_PSM_BIT(pAd, PWR_SAVE);
+
+	/* if WMM-APSD is failed, try to disable following line*/
+	AsicSleepThenAutoWakeup(pAd, TbttNumToNextWakeUp);
+
+	return NDIS_STATUS_SUCCESS;
+}
+
+
+NTSTATUS QkeriodicExecutHdlr(IN PRTMP_ADAPTER pAd, IN PCmdQElmt CMDQelmt)
+{
+	StaQuickResponeForRateUpExec(NULL, pAd, NULL, NULL);
+	return NDIS_STATUS_SUCCESS;
+}
+#endif /* CONFIG_STA_SUPPORT*/
 
 
 #ifdef CONFIG_AP_SUPPORT
@@ -960,10 +1061,17 @@ static CMDHdlr CMDHdlrTable[] = {
 	DelAsicWcidHdlr,					/* CMDTHREAD_DEL_ASIC_WCID*/
 	SetClientMACEntryHdlr,			/* CMDTHREAD_SET_CLIENT_MAC_ENTRY*/
 
+#ifdef CONFIG_STA_SUPPORT
+	SetPSMBitHdlr,					/* CMDTHREAD_SET_PSM_BIT*/
+	ForceWakeUpHdlr,				/* CMDTHREAD_FORCE_WAKE_UP*/
+	ForceSleepAutoWakeupHdlr,		/* CMDTHREAD_FORCE_SLEEP_AUTO_WAKEUP*/
+	QkeriodicExecutHdlr,				/* CMDTHREAD_QKERIODIC_EXECUT*/
+#else
 	NULL,
 	NULL,
 	NULL,
 	NULL,
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef CONFIG_AP_SUPPORT
 	APUpdateCapabilityAndErpieHdlr,	/* CMDTHREAD_AP_UPDATE_CAPABILITY_AND_ERPIE*/
@@ -1006,7 +1114,11 @@ static CMDHdlr CMDHdlrTable[] = {
 	SetAsicPairwiseKeyHdlr,			/* CMDTHREAD_SET_ASIC_PAIRWISE_KEY*/
 	RemovePairwiseKeyHdlr,			/* CMDTHREAD_REMOVE_PAIRWISE_KEY*/
 
+#ifdef CONFIG_STA_SUPPORT
+	SetPortSecuredHdlr,				/* CMDTHREAD_SET_PORT_SECURED*/
+#else
 	NULL,
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef CONFIG_AP_SUPPORT
 	_802_11_CounterMeasureHdlr,	/* CMDTHREAD_802_11_COUNTER_MEASURE*/

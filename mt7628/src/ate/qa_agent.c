@@ -1335,13 +1335,21 @@ static INT32 HQA_GetThermalValue(
 {
 	INT32 Ret = 0;	
 	UINT32 temperature=0; 
+
+#if defined(MT7603) || defined(MT7628)
+	temperature = MtAsicGetThemalSensor(pAd, 0);
+	temperature = OS_HTONL(temperature);
+	NdisMoveMemory(HqaCmdFrame->Data + 2, &temperature, 4);
+#else
 	ATE_CTRL *ATECtrl = &(pAd->ATECtrl);
 	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("%s\n", __FUNCTION__));
 
 	CmdGetThermalSensorResult(pAd, 0,&temperature); /* 0: get temperature; 1: get adc */
 
 	Ret = RTMP_OS_WAIT_FOR_COMPLETION_TIMEOUT(&ATECtrl->cmd_done, ATECtrl->cmd_expire);
+	ATECtrl->thermal_val = OS_HTONL(ATECtrl->thermal_val);
 	NdisMoveMemory(HqaCmdFrame->Data + 2, &ATECtrl->thermal_val, 4);
+#endif /* MT7603 || MT7628 */
 	ResponseToQA(HqaCmdFrame, WRQ, 6, Ret);
 	return Ret;
 }

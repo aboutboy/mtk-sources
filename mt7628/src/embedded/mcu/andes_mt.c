@@ -536,6 +536,7 @@ static VOID CmdPsRetrieveStartRsp(struct cmd_msg *msg, char *Data, UINT16 Len)
 
 	if (IS_ENTRY_NONE(pEntry))
 	{
+		MtPsRedirectDisableCheck(pAd, WlanIdx);
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR | DBG_FUNC_PS, ("---->%s Entry(wcid=%d) left.\n", __FUNCTION__, WlanIdx));
 		return;
 	}
@@ -1821,8 +1822,7 @@ static VOID mt_FillSkuParameter(RTMP_ADAPTER *pAd,UINT8 channel,UINT8 *txPowerSk
 {
 	CH_POWER *ch, *ch_temp;
 	UCHAR start_ch;
-	UCHAR base_pwr = pAd->DefaultTargetPwr;
-	UINT8 i, j;
+	UINT8 j;
 
 	DlListForEachSafe(ch, ch_temp, &pAd->SingleSkuPwrList, CH_POWER, List)
 	{
@@ -2186,10 +2186,15 @@ static NDIS_STATUS AndesMTLoadFwMethod1(RTMP_ADAPTER *ad)
 
 	Ctl->Stage = FW_DOWNLOAD;
 
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("Build Date:"));
+	DBGPRINT(RT_DEBUG_OFF, ("FW Version:"));
+	for (loop = 0; loop < 10; loop++)
+		DBGPRINT(RT_DEBUG_OFF, ("%c", *(cap->FWImageName + cap->fw_len - 29 + loop)));
+	DBGPRINT(RT_DEBUG_OFF, ("\n"));
 
-	for (loop = 0; loop < 9; loop++)
-		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%c", *(cap->FWImageName + cap->fw_len - 20 + loop)));
+	DBGPRINT(RT_DEBUG_OFF, ("FW Build Date:"));
+	for (loop = 0; loop < 15; loop++)
+		DBGPRINT(RT_DEBUG_OFF, ("%c", *(cap->FWImageName + cap->fw_len - 19 + loop)));
+	DBGPRINT(RT_DEBUG_OFF, ("\n"));
 
 	dl_len = (*(cap->FWImageName + cap->fw_len - 1) << 24) |
 				(*(cap->FWImageName + cap->fw_len - 2) << 16) |
@@ -3204,6 +3209,44 @@ static VOID EventChPrivilegeHandler(RTMP_ADAPTER *pAd, UINT8 *Data, UINT32 Lengt
 	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_INFO, ("%s\n", __FUNCTION__));
 }
 
+#ifdef CONFIG_STA_SUPPORT
+
+#ifdef RTMP_MAC_SDIO
+static VOID ExtEventSleepyNotifyHandler(RTMP_ADAPTER *pAd, UINT8 *Data, UINT32 Length)
+{
+	struct wifi_dev *wdev = &pAd->StaCfg.wdev;
+
+	struct _EXT_EVENT_SLEEPY_NOTIFY_T *pExtEventSleepyNotify = (struct _EXT_EVENT_SLEEPY_NOTIFY_T *)Data;
+
+	//printk("ExtEventSleepyNotifyHandler: %d\n", pExtEventSleepyNotify->ucSleepState);
+	//printk("in_interrupt = %d ------------------------------\n", in_interrupt());
+
+	extern INT32 MakeFWOwn(RTMP_ADAPTER *pAd);
+
+	if (pExtEventSleepyNotify->ucSleepState)
+		MakeFWOwn(pAd);
+
+}
+#endif
+
+static VOID ExtEventBeaconLostHandler(RTMP_ADAPTER *pAd, UINT8 *Data, UINT32 Length)
+{
+	struct wifi_dev *wdev = &pAd->StaCfg.wdev;
+
+	struct _EXT_EVENT_BEACON_LOSS_T *pExtEventBeaconLoss = (struct _EXT_EVENT_BEACON_LOSS_T *)Data;
+
+	wdev->bBeaconLost = TRUE;
+
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR, ("%s::FW LOG, Beacon lost (%x:%x:%x:%x:%x:%x)\n",
+								__FUNCTION__,
+								pExtEventBeaconLoss->aucBssid[0],
+								pExtEventBeaconLoss->aucBssid[1],
+								pExtEventBeaconLoss->aucBssid[2],
+								pExtEventBeaconLoss->aucBssid[3],
+								pExtEventBeaconLoss->aucBssid[4],
+								pExtEventBeaconLoss->aucBssid[5]));
+}
+#endif /*CONFIG_STA_SUPPORT*/
 
 static VOID ExtEventTmrCalResultHandler(RTMP_ADAPTER *pAd, UINT8 *Data, UINT32 Length)
 {
@@ -3348,6 +3391,16 @@ static VOID EventExtEventHandler(RTMP_ADAPTER *pAd, UINT8 ExtEID, UINT8 *Data, U
 			EventThermalProtect(pAd, Data, Length);
 			break;
 #endif
+#ifdef CONFIG_STA_SUPPORT
+#ifdef RTMP_MAC_SDIO
+		case EXT_EVENT_SLEEPY_NOTIFY:
+			ExtEventSleepyNotifyHandler(pAd, Data, Length);
+			break;
+#endif
+		case EXT_EVENT_BEACON_LOSS:
+			ExtEventBeaconLostHandler(pAd, Data, Length);
+			break;
+#endif /*CONFIG_STA_SUPPORT*/
         case EXT_EVENT_TMR_CAL_RESULT:
             ExtEventTmrCalResultHandler(pAd, Data, Length);
             break;
@@ -3444,6 +3497,13 @@ static VOID AndesMTRxProcessEvent(RTMP_ADAPTER *pAd, struct cmd_msg *rx_msg)
 						msg->rsp_handler(msg, GET_OS_PKT_DATAPTR(net_pkt) + sizeof(*event_rxd),
 												event_rxd->fw_rxd_0.field.length - sizeof(*event_rxd));
 					}
+				}
+				else if ((msg->rsp_payload_len == 0) &&
+						(msg->rsp_handler == NULL) &&
+						((event_rxd->fw_rxd_0.field.length - sizeof(*event_rxd)) == 8))
+				{
+					/* Just need to wait for the command finished */
+					MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_INFO, ("command response(ack) success\n"));
 				}
 				else
 				{
@@ -4259,7 +4319,7 @@ INT32 CmdEdcaParameterSet(RTMP_ADAPTER *pAd, CMD_EDCA_SET_T EdcaParam)
 		goto error;
 	}
 
-	AndesInitCmdMsg(msg, P1_Q0, EXT_CID, CMD_SET, EXT_CMD_ID_EDCA_SET, FALSE, 0, FALSE, FALSE, 0, NULL, NULL);
+	AndesInitCmdMsg(msg, P1_Q0, EXT_CID, CMD_SET, EXT_CMD_ID_EDCA_SET, TRUE, 0, TRUE, TRUE, 0, NULL, NULL);
 
 	AndesAppendCmdMsg(msg, (char *)&EdcaParam,size);
 
@@ -4343,6 +4403,11 @@ error:
  /*1: enter, 2: exit specific PM state*/
 INT32 CmdExtPmStateCtrl(RTMP_ADAPTER *pAd, UINT8 ucWlanIdx, UINT8 ucPmNumber, UINT8 ucPmState)
 {
+#ifdef CONFIG_STA_SUPPORT
+	static UINT32	u4RfCr = 0;
+	PMAC_TABLE_ENTRY pEntry = &pAd->MacTab.Content[ucWlanIdx];
+	struct wifi_dev *wdev = &pAd->StaCfg.wdev;
+#endif /*CONFIG_STA_SUPPORT*/
 	struct cmd_msg *msg = NULL;
 	EXT_CMD_PM_STATE_CTRL_T CmdPmStateCtrl = {0};
 	INT32 Ret = 0;
@@ -4359,7 +4424,41 @@ INT32 CmdExtPmStateCtrl(RTMP_ADAPTER *pAd, UINT8 ucWlanIdx, UINT8 ucPmNumber, UI
 	CmdPmStateCtrl.ucWlanIdx = ucWlanIdx;
 	CmdPmStateCtrl.ucPmNumber = ucPmNumber;
 	CmdPmStateCtrl.ucPmState = ucPmState;
+#ifdef CONFIG_STA_SUPPORT
+	NdisMoveMemory(CmdPmStateCtrl.aucBssid, pEntry->PairwiseKey.BssId, MAC_ADDR_LEN);
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_INFO, ("%s:(%x, %x, %x), (%d, %d)\n",
+								__FUNCTION__,
+								pEntry->PairwiseKey.BssId[0],
+								pEntry->PairwiseKey.BssId[1],
+								pEntry->PairwiseKey.BssId[2],
+								wdev->ucBeaconPeriod,
+								wdev->ucDtimPeriod));
+#endif /*CONFIG_STA_SUPPORT*/
 
+#ifdef CONFIG_STA_SUPPORT
+	if (ucPmState == ENTER_PM_STATE)
+	{
+		CmdPmStateCtrl.ucDtimPeriod = wdev->ucDtimPeriod;
+		CmdPmStateCtrl.u2BcnInterval = wdev->ucBeaconPeriod;
+		CmdPmStateCtrl.u4Aid = pEntry->Aid;
+
+		RTMP_IO_READ32(pAd, RMAC_RFCR, &u4RfCr);
+		u4RfCr &= ~DROP_NOT_MY_BSSID;
+		u4RfCr &= ~DROP_DIFF_BSSID_BCN;
+		CmdPmStateCtrl.u4RxFilter = u4RfCr;
+
+		CmdPmStateCtrl.u4Feature = (PM_CMD_FEATURE_PSPOLL_OFFLOAD | PM_CMD_FEATURE_PS_TX_REDIRECT | PM_CMD_FEATURE_SMART_BCN_SP);
+		CmdPmStateCtrl.ucOwnMacIdx = 0; //AsicSetDevMac
+		// TODO: Hanmim 7636 psm
+		CmdPmStateCtrl.ucWmmIdx = 0;		// 0: WMM1, 1: WMM2
+		CmdPmStateCtrl.ucBcnLossCount = 5; // 2.5sec
+		CmdPmStateCtrl.ucBcnSpDuration = 0;
+	}
+	else
+	{
+		CmdPmStateCtrl.u4RxFilter = u4RfCr;
+	}
+#endif /*CONFIG_STA_SUPPORT*/
 
 	AndesInitCmdMsg(msg, P1_Q0, EXT_CID, CMD_SET, EXT_CMD_PM_STATE_CTRL, TRUE, 0,TRUE, TRUE, 8, NULL, CmdExtPmStateCtrlRsp);
 
@@ -4371,19 +4470,21 @@ error:
 	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_INFO, ("%s:(Ret = %d)\n", __FUNCTION__, Ret));
 	return Ret;
 }
-
-INT AndesLedOP(
+#ifdef LED_CONTROL_SUPPORT
+INT AndesLedEnhanceOP(
 	IN PRTMP_ADAPTER pAd,
 	IN UCHAR LedIdx,
-	IN UCHAR LinkStatus)
+	IN UCHAR on_time,
+	IN UCHAR off_time,
+	IN UCHAR Led_Parameter
+	)
 {
 	struct cmd_msg *msg;
 	CHAR *Pos, *pBuf;
 	UINT32 VarLen;
-	UINT32 arg0, arg1;
+	UINT32 arg0;
 	INT32 ret;
-
-	ret = 0;
+	LED_ENHANCE led_enhance;
 	
 	msg = AndesAllocCmdMsg(pAd, sizeof(LED_NMAC_CMD));
 
@@ -4399,8 +4500,18 @@ INT AndesLedOP(
 	
 	/* Calibration ID and Parameter */
 	VarLen = 8;
-	arg0 = cpu2le32(LedIdx);
-	arg1 = cpu2le32(LinkStatus);
+	arg0 = LedIdx;
+	led_enhance.word = 0;
+	led_enhance.field.on_time=on_time;
+	led_enhance.field.off_time=off_time;
+	led_enhance.field.tx_blink=0;
+	led_enhance.field.reverse_polarity=0;
+	if (pAd->LedCntl.LedMethod == 1)
+	{
+		led_enhance.field.tx_blink=2;
+		led_enhance.field.reverse_polarity=1;	
+	}
+	led_enhance.field.idx = Led_Parameter;
 	os_alloc_mem(pAd, (UCHAR **)&pBuf, VarLen);
 	if (pBuf == NULL)
 	{
@@ -4413,11 +4524,12 @@ INT AndesLedOP(
 	/* Parameter */
 	
 	NdisMoveMemory(Pos, &arg0, 4);
-	NdisMoveMemory(Pos+4, &arg1, 4);
+	NdisMoveMemory(Pos+4, &led_enhance, sizeof(led_enhance));
+	
 
 	Pos += 4;
 
-	hex_dump("AndesLedOP: ", pBuf, VarLen);
+	hex_dump("AndesLedOPEnhance: ", pBuf, VarLen);
 	AndesAppendCmdMsg(msg, (char *)pBuf, VarLen);
 	
 
@@ -4429,5 +4541,5 @@ error:
 	DBGPRINT(RT_DEBUG_INFO, ("%s:(ret = %d)\n", __FUNCTION__, ret));
 	return ret;	
 }
-
+#endif
 

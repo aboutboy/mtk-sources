@@ -686,6 +686,10 @@ struct _RTMP_CHIP_CAP {
 	UCHAR ba_max_cnt;
 
 #ifdef RTMP_MAC_PCI
+#ifdef CONFIG_STA_SUPPORT
+	BOOLEAN HW_PCIE_PS_SUPPORT;
+	BOOLEAN HW_PCIE_PS_L3_ENABLE;
+#endif /* CONFIG_STA_SUPPORT */
 #endif /* RTMP_MAC_PCI */
 
 	BOOLEAN temp_tx_alc_enable;
@@ -726,9 +730,6 @@ struct _RTMP_CHIP_CAP {
 	UINT8 max_nss;			/* maximum Nss, 3 for 3883 or 3593 */
 	UINT8 max_vht_mcs;		/* Maximum Vht MCS */
 
-#ifdef DOT11_VHT_AC
-	UINT8 ac_off_mode;		/* 11AC off mode */
-#endif /* DOT11_VHT_AC */
 
 	BOOLEAN bTempCompTxALC;
 	BOOLEAN rx_temp_comp;
@@ -749,9 +750,6 @@ struct _RTMP_CHIP_CAP {
 	INT16	PAModeCCK[4];
 	INT16	PAModeOFDM[8];
 	INT16	PAModeHT[16];
-#ifdef DOT11_VHT_AC
-	INT16	PAModeVHT[10];
-#endif /* DOT11_VHT_AC */
 #endif /* defined(RTMP_INTERNAL_TX_ALC) || defined(SINGLE_SKU_V2) */
 
 
@@ -800,6 +798,8 @@ struct _RTMP_CHIP_CAP {
 	UINT8	FlgPMFEncrtptMode;
 #endif /* DOT11W_PMF_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef RT5592EP_SUPPORT
 	UINT32 Priv; /* Flag for RT5592 EP */

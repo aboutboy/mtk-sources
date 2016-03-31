@@ -64,14 +64,6 @@ static void ap_assoc_info_debugshow(
 					pAd->MacTab.fAnyStation20Only, 
 					pAd->MacTab.fAnyStationNonGF));
 
-#ifdef DOT11_VHT_AC
-		if ((ie_list->vht_cap_len) &&
-			WMODE_CAP_N(pAd->CommonCfg.PhyMode) &&
-			(pAd->CommonCfg.Channel > 14))
-		{
-			assoc_vht_info_debugshow(pAd, pEntry, &ie_list->vht_cap, NULL);
-		}
-#endif /* DOT11_VHT_AC */
 
 
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\tExt Cap Info: \n"));
@@ -79,17 +71,6 @@ static void ap_assoc_info_debugshow(
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tBss2040CoexistMgmt=%d\n",
 				pEntry->BSS2040CoexistenceMgmtSupport));
 #endif /* DOT11N_DRAFT3 */
-#ifdef DOT11_VHT_AC
-		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tOperatinModeNotification(%d)\n",
-				pEntry->ext_cap.operating_mode_notification));
-		if (pEntry->ext_cap.operating_mode_notification) {
-			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\t\tChannelWidth(%d), RxNss(%d), RxNssType(%d), ForceOpMode(%d)\n",
-					pEntry->operating_mode.ch_width,
-					pEntry->operating_mode.rx_nss,
-					pEntry->operating_mode.rx_nss_type,
-					pEntry->force_op_mode));
-		}
-#endif /* DOT11_VHT_AC */
 	}
 	else
 #endif /* DOT11_N_SUPPORT */
@@ -205,9 +186,6 @@ static USHORT update_associated_mac_entry(
 	{
 		/* Force to None-HT mode due to WiFi 11n policy */
 		ie_list->ht_cap_len = 0;
-#ifdef DOT11_VHT_AC
-		ie_list->vht_cap_len = 0;
-#endif /* DOT11_VHT_AC */
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("%s : Force the STA as Non-HT mode\n", __FUNCTION__));
 	}
 
@@ -222,6 +200,22 @@ static USHORT update_associated_mac_entry(
 		if (ie_list->ExtCapInfo.BssCoexistMgmtSupport)
 			pEntry->BSS2040CoexistenceMgmtSupport = 1;
 #endif /* DOT11N_DRAFT3 */
+#ifdef CONFIG_HOTSPOT_R2
+		if (ie_list->ExtCapInfo.qosmap)
+			pEntry->QosMapSupport = 1;
+#endif		
+#ifdef DOT11V_WNM_SUPPORT
+		if(IS_BSS_TRANSIT_MANMT_SUPPORT(pAd, pEntry->func_tb_idx))
+		{
+			if(ie_list->ExtCapInfo.BssTransitionManmt)
+				pEntry->BssTransitionManmtSupport = 1;
+		}
+		if(IS_WNMDMS_SUPPORT(pAd, pEntry->func_tb_idx))
+		{
+			if(ie_list->ExtCapInfo.DMSSupport)
+				pEntry->DMSSupport = 1;
+		}
+#endif /* DOT11V_WNM_SUPPORT */
 
 		/* 40Mhz BSS Width Trigger events */
 		if (ie_list->HTCapability.HtCapInfo.Forty_Mhz_Intolerant)
@@ -283,91 +277,15 @@ static USHORT update_associated_mac_entry(
 		/* Record the received capability from association request */
 		NdisMoveMemory(&pEntry->HTCapability, &ie_list->HTCapability, sizeof(HT_CAPABILITY_IE));
 
-#ifdef DOT11_VHT_AC
-		if (WMODE_CAP_AC(pAd->CommonCfg.PhyMode) &&
-			(pAd->CommonCfg.Channel > 14) &&
-			ie_list->vht_cap_len)
-		{
-			VHT_CAP_INFO *vht_cap_info = (VHT_CAP_INFO *)&ie_list->vht_cap;
-
-			pEntry->MaxHTPhyMode.field.MODE = MODE_VHT;
-			if ((pEntry->MaxHTPhyMode.field.BW== BW_40) && (wdev->DesiredHtPhyInfo.vht_bw == VHT_BW_80))
-				pEntry->MaxHTPhyMode.field.BW = BW_80;
-
-			/* TODO: implement get_vht_max_mcs to get peer max MCS */
-			if (ie_list->vht_cap.mcs_set.rx_mcs_map.mcs_ss1 == VHT_MCS_CAP_9) {
-				if ((pEntry->MaxHTPhyMode.field.BW == BW_20))
-					pEntry->MaxHTPhyMode.field.MCS = 8;
-				else
-				pEntry->MaxHTPhyMode.field.MCS = 9;
-			} else if (ie_list->vht_cap.mcs_set.rx_mcs_map.mcs_ss1 == VHT_MCS_CAP_8) {
-				pEntry->MaxHTPhyMode.field.MCS = 8;
-			} else if (ie_list->vht_cap.mcs_set.rx_mcs_map.mcs_ss1 == VHT_MCS_CAP_8) {
-				pEntry->MaxHTPhyMode.field.MCS = 7;
-			}
-			
-			if (ie_list->vht_cap.mcs_set.rx_mcs_map.mcs_ss2 == VHT_MCS_CAP_9) {
-				if ((pEntry->MaxHTPhyMode.field.BW == BW_20))
-					pEntry->MaxHTPhyMode.field.MCS = ((1 << 4) | 8);
-				else
-					pEntry->MaxHTPhyMode.field.MCS = ((1 << 4) | 9);
-			} else if (ie_list->vht_cap.mcs_set.rx_mcs_map.mcs_ss2 == VHT_MCS_CAP_8) {
-				pEntry->MaxHTPhyMode.field.MCS = ((1 << 4) | 8);
-			} else if (ie_list->vht_cap.mcs_set.rx_mcs_map.mcs_ss2 == VHT_MCS_CAP_7) {
-				pEntry->MaxHTPhyMode.field.MCS = ((1 << 4) | 7);
-			}
-
-
-MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s(): Peer's PhyCap=>Mode:%s, BW:%s\n", 
-				__FUNCTION__,
-				get_phymode_str(pEntry->MaxHTPhyMode.field.MODE),
-				get_bw_str(pEntry->MaxHTPhyMode.field.BW)));
-
-			if (pAd->CommonCfg.vht_ldpc && (pAd->chipCap.phy_caps & fPHY_CAP_LDPC)) {
-			if (vht_cap_info->rx_ldpc)
-				CLIENT_STATUS_SET_FLAG(pEntry, fCLIENT_STATUS_VHT_RX_LDPC_CAPABLE);
-			}
-
-			if (vht_cap_info->sgi_80M)
-				CLIENT_STATUS_SET_FLAG(pEntry, fCLIENT_STATUS_SGI80_CAPABLE);
-
-			if (vht_cap_info->sgi_160M)
-				CLIENT_STATUS_SET_FLAG(pEntry, fCLIENT_STATUS_SGI160_CAPABLE);
-
-			if (pAd->CommonCfg.vht_stbc)
-			{
-				if (vht_cap_info->tx_stbc)
-					CLIENT_STATUS_SET_FLAG(pEntry, fCLIENT_STATUS_VHT_TXSTBC_CAPABLE);
-				if (vht_cap_info->rx_stbc)
-					CLIENT_STATUS_SET_FLAG(pEntry, fCLIENT_STATUS_VHT_RXSTBC_CAPABLE);
-			}
-			NdisMoveMemory(&pEntry->vht_cap_ie, &ie_list->vht_cap, sizeof(VHT_CAP_IE));
-		}
-
-		if (ie_list->operating_mode_len == sizeof(OPERATING_MODE) &&
-			ie_list->operating_mode.rx_nss_type == 0)
-		{
-			pEntry->operating_mode = ie_list->operating_mode;
-			pEntry->force_op_mode = TRUE;
-			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s(): Peer's OperatingMode=>RxNssType: %d, RxNss: %d, ChBW: %d\n",
-				__FUNCTION__, pEntry->operating_mode.rx_nss_type,
-				pEntry->operating_mode.rx_nss,
-				pEntry->operating_mode.ch_width));		
-		}
-		else
-			pEntry->force_op_mode = FALSE;
-#endif /* DOT11_VHT_AC */
 	}
 	else
 	{
+#ifdef CONFIG_HOTSPOT_R2
+		if (ie_list->ExtCapInfo.qosmap)
+			pEntry->QosMapSupport = 1;
+#endif
 		pAd->MacTab.fAnyStationIsLegacy = TRUE;
 		NdisZeroMemory(&pEntry->HTCapability, sizeof(HT_CAPABILITY_IE));
-#ifdef DOT11_VHT_AC
-		// TODO: shiang-usw, it's ugly and need to revise it
-		NdisZeroMemory(&pEntry->vht_cap_ie, sizeof(VHT_CAP_IE));
-		NdisZeroMemory(&pEntry->SupportVHTMCS, sizeof(pEntry->SupportVHTMCS));
-		pEntry->SupportRateMode &= (~SUPPORT_VHT_MODE);
-#endif /* DOT11_VHT_AC */
 	}
 #endif /* DOT11_N_SUPPORT */
 
@@ -424,12 +342,6 @@ MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s(): Peer's PhyCap=>Mode:%
 	{
 		pEntry->HTPhyMode.field.MCS = wdev->HTPhyMode.field.MCS;
 		pEntry->bAutoTxRateSwitch = FALSE;
-#ifdef WFA_VHT_PF
-		if (WMODE_CAP_AC(pAd->CommonCfg.PhyMode)) {
-			pEntry->HTPhyMode.field.MCS = wdev->DesiredTransmitSetting.field.MCS + 
-										((pAd->CommonCfg.TxStream - 1) << 4);
-		}
-#endif /* WFA_VHT_PF */
 
 		/* If the legacy mode is set, overwrite the transmit setting of this entry. */
 		RTMPUpdateLegacyTxSetting((UCHAR)wdev->DesiredTransmitSetting.field.FixedTxMode, pEntry);
@@ -468,7 +380,7 @@ MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s(): Peer's PhyCap=>Mode:%
 	pEntry->ReTryCounter = PEER_MSG1_RETRY_TIMER_CTR;
 
 #ifdef HOSTAPD_SUPPORT
-	if((wdev->Hostapd == TRUE) &&
+	if((wdev->Hostapd == Hostapd_EXT) &&
 	    ((wdev->AuthMode >= Ndis802_11AuthModeWPA) || wdev->IEEE8021X))
 	{
 		RtmpOSWrielessEventSendExt(pAd->net_dev, RT_WLAN_EVENT_EXPIRED,
@@ -504,12 +416,12 @@ static USHORT APBuildAssociation(
 	struct wifi_dev *wdev;
 #ifdef WSC_AP_SUPPORT
 	WSC_CTRL *wsc_ctrl;
-	STA_TR_ENTRY *tr_entry;
 #endif /* WSC_AP_SUPPORT */
+	STA_TR_ENTRY *tr_entry;
 
 	MaxSupportedRate = dot11_2_ra_rate(MaxSupportedRateIn500Kbps);
 
-    if ((WMODE_EQUAL(pAd->CommonCfg.PhyMode, WMODE_G) 
+    if (pAd && (WMODE_EQUAL(pAd->CommonCfg.PhyMode, WMODE_G) 
 #ifdef DOT11_N_SUPPORT
 		|| WMODE_EQUAL(pAd->CommonCfg.PhyMode, (WMODE_G | WMODE_GN))
 #endif /* DOT11_N_SUPPORT */
@@ -524,13 +436,6 @@ static USHORT APBuildAssociation(
 		return MLME_ASSOC_REJ_DATA_RATE;
 #endif /* DOT11_N_SUPPORT */
 
-#ifdef DOT11_VHT_AC
-	if (WMODE_CAP_AC(pAd->CommonCfg.PhyMode) &&
-		(pAd->CommonCfg.Channel > 14) &&
-		(ie_list->vht_cap_len == 0) &&
-		(pAd->CommonCfg.bNonVhtDisallow))
-		return MLME_ASSOC_REJ_DATA_RATE;
-#endif /* DOT11_VHT_AC */
 
 	if (!pEntry)
 		return MLME_UNSPECIFY_FAIL;
@@ -542,12 +447,19 @@ static USHORT APBuildAssociation(
 			capablity, supported rates, listen interval, etc., to 
 			decide the Status Code
 		*/
+		tr_entry = &pAd->MacTab.tr_entry[pEntry->wcid];
+		if (tr_entry == NULL)
+			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("tr_entry is NULL.\n"));
+		
 		*pAid = pEntry->Aid;
 		pEntry->NoDataIdleCount = 0;
 		// TODO: shiang-usw,  remove upper setting becasue we need to migrate to tr_entry!
 		pAd->MacTab.tr_entry[pEntry->wcid].NoDataIdleCount = 0;
 
 		pEntry->StaConnectTime = 0;
+#ifdef CONFIG_HOTSPOT_R2
+        if (!CLIENT_STATUS_TEST_FLAG(pEntry, fCLIENT_STATUS_OSEN_CAPABLE))
+#endif       
         { 
 #ifdef WSC_AP_SUPPORT
 			if (pEntry->bWscCapable == FALSE)
@@ -568,12 +480,14 @@ static USHORT APBuildAssociation(
 		else if ((pEntry->RSNIE_Len == 0) &&
 				(wdev->AuthMode >= Ndis802_11AuthModeWPA) 
 #ifdef HOSTAPD_SUPPORT
-				&& (wdev->Hostapd == TRUE)
+				&& (wdev->Hostapd == Hostapd_EXT)
 #endif /* HOSTAPD_SUPPORT */
+#ifdef RT_CFG80211_SUPPORT
+				&& (wdev->Hostapd == Hostapd_CFG)
+#endif /*RT_CFG80211_SUPPORT*/
 		)
 		{
 #ifdef WSC_AP_SUPPORT
-			tr_entry = &pAd->MacTab.tr_entry[pEntry->wcid];
 			wsc_ctrl = &pAd->ApCfg.MBSSID[pEntry->func_tb_idx].WscControl;
 			if (((wsc_ctrl->WscConfMode != WSC_DISABLE) &&
 				pEntry->bWscCapable
@@ -583,8 +497,11 @@ static USHORT APBuildAssociation(
 #endif /* WSC_V2_SUPPORT */
 				)
 #ifdef HOSTAPD_SUPPORT
-				|| wdev->Hostapd == TRUE
+				|| wdev->Hostapd == Hostapd_EXT
 #endif /*HOSTAPD_SUPPORT*/
+#ifdef RT_CFG80211_SUPPORT
+				|| wdev->Hostapd == Hostapd_CFG
+#endif /*RT_CFG80211_SUPPORT*/
 			)
 			{
 				pEntry->Sst = SST_ASSOC;
@@ -595,10 +512,15 @@ static USHORT APBuildAssociation(
 				|| (wdev->IEEE8021X == TRUE)
 #endif /* DOT1X_SUPPORT */					
 				)
-					tr_entry->PortSecured = WPA_802_1X_PORT_NOT_SECURED;
+				{
+					if(tr_entry)
+						tr_entry->PortSecured = WPA_802_1X_PORT_NOT_SECURED;
+				}
 				else
-					tr_entry->PortSecured = WPA_802_1X_PORT_SECURED;
-
+				{
+					if(tr_entry)
+						tr_entry->PortSecured = WPA_802_1X_PORT_SECURED;
+				}
 				if ((pEntry->AuthMode == Ndis802_11AuthModeWPAPSK) ||
 				(pEntry->AuthMode == Ndis802_11AuthModeWPA2PSK))
 				{
@@ -622,17 +544,17 @@ static USHORT APBuildAssociation(
 				StatusCode = MLME_ASSOC_DENY_OUT_SCOPE;
 			}
 #else  /* WSC_AP_SUPPORT */
-#ifdef RT_CFG80211_P2P_SUPPORT
+#ifdef RT_CFG80211_SUPPORT
 			//CFG_TODO: due to WPS_AP flag
 			pEntry->Sst = SST_ASSOC;
 			StatusCode = MLME_SUCCESS;
 #else			
-			StatusCode = MLME_ASSOC_DENY_OUT_SCOPE;
-#endif /* RT_CFG80211_P2P_SUPPORT */			
+			StatusCode = MLME_ASSOC_DENY_OUT_SCOPE;			
+#endif /* RT_CFG80211_SUPPORT */			
 #endif /* WSC_AP_SUPPORT */
 
 #ifdef HOSTAPD_SUPPORT
-			if(wdev->Hostapd == TRUE
+			if(wdev->Hostapd == Hostapd_EXT
 				&& (wdev->AuthMode >= Ndis802_11AuthModeWPA 
 				|| wdev->IEEE8021X))
 			{
@@ -722,6 +644,10 @@ BOOLEAN PeerAssocReqCmmSanity(
     UCHAR Sanity = 0;
     UCHAR WPA1_OUI[4] = { 0x00, 0x50, 0xF2, 0x01 };
     UCHAR WPA2_OUI[3] = { 0x00, 0x0F, 0xAC };
+#ifdef CONFIG_HOTSPOT_R2
+	UCHAR HS2_OSEN_OUI[4] = { 0x50, 0x6f, 0x9a, 0x12 };
+	UCHAR HS2OUIBYTE[4] = {0x50, 0x6f, 0x9a, 0x10};
+#endif    
     MAC_TABLE_ENTRY *pEntry = (MAC_TABLE_ENTRY *)NULL;
 	HT_CAPABILITY_IE *pHtCapability = &ie_lists->HTCapability;
 
@@ -863,6 +789,27 @@ BOOLEAN PeerAssocReqCmmSanity(
 
             case IE_WPA:    /* same as IE_VENDOR_SPECIFIC */
             case IE_WPA2:
+#ifdef CONFIG_HOTSPOT_R2
+				if (NdisEqualMemory(eid_ptr->Octet, HS2OUIBYTE, sizeof(HS2OUIBYTE)) && (eid_ptr->Len >= 5))
+				{
+					//UCHAR tmp2 = 0x12;
+					UCHAR *hs2_config = (UCHAR *)&eid_ptr->Octet[4];
+					UCHAR ppomo_exist = ((*hs2_config) >> 1) & 0x01;
+					UCHAR hs2_version = ((*hs2_config) >> 4) & 0x0f;
+					//UCHAR *tmp3 = (UCHAR *)&pEntry->hs_info.ppsmo_id;
+					//UCHAR tmp[2] = {0x12,0x34};
+
+					pEntry->hs_info.version = hs2_version;
+					pEntry->hs_info.ppsmo_exist = ppomo_exist;	
+					if (pEntry->hs_info.ppsmo_exist)
+					{
+						NdisMoveMemory(&pEntry->hs_info.ppsmo_id, &eid_ptr->Octet[5], 2);
+						//NdisMoveMemory(tmp3, tmp, 2);
+					}				
+					printk("Assoc HS2 STA:version:%d,ppomo exist:%d, value:0x%x\n", pEntry->hs_info.version, pEntry->hs_info.ppsmo_exist, pEntry->hs_info.ppsmo_id);
+					break;
+				}
+#endif /* CONFIG_HOTSPOT_R2 */
 
 				if (NdisEqualMemory(eid_ptr->Octet, WPS_OUI, 4))
 				{
@@ -945,7 +892,23 @@ BOOLEAN PeerAssocReqCmmSanity(
                 {
                     MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("Not RSN IE, maybe WMM IE!!!\n"));
                     
+#ifdef CONFIG_HOTSPOT_R2
+			if (!NdisEqualMemory(eid_ptr->Octet, HS2_OSEN_OUI, sizeof(HS2_OSEN_OUI)))
+			{
+				unsigned char *tmp = (unsigned char *)eid_ptr->Octet;
+
+				MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("!!!!!!not found OSEN IE,%x:%x:%x:%x\n", *tmp, *(tmp+1), *(tmp+2), *(tmp+3)));
+				CLIENT_STATUS_CLEAR_FLAG(pEntry, fCLIENT_STATUS_OSEN_CAPABLE);
+                    break;                          
+                }
+			else
+			{
+				CLIENT_STATUS_SET_FLAG(pEntry, fCLIENT_STATUS_OSEN_CAPABLE);
+				MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("!!!!!!found OSEN IE\n"));
+			}
+#else
                    	break;                          
+#endif          
                 }
                 
                 if (/*(eid_ptr->Len <= MAX_LEN_OF_RSNIE) &&*/ (eid_ptr->Len >= MIN_LEN_OF_RSNIE))
@@ -983,36 +946,6 @@ BOOLEAN PeerAssocReqCmmSanity(
 
 
 
-#ifdef DOT11_VHT_AC
-		case IE_VHT_CAP:
-			if (eid_ptr->Len == sizeof(VHT_CAP_IE))
-			{
-				NdisMoveMemory(&ie_lists->vht_cap, eid_ptr->Octet, sizeof(VHT_CAP_IE));
-				ie_lists->vht_cap_len = eid_ptr->Len;
-				MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("%s():IE_VHT_CAP\n", __FUNCTION__));
-			}
-			else
-			{
-				MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_WARN, ("%s():wrong IE_VHT_CAP, eid->Len = %d\n",
-							__FUNCTION__, eid_ptr->Len));
-			}
-
-		case IE_VHT_OP:
-			if (eid_ptr->Len == sizeof(VHT_OP_IE))
-			{
-				NdisMoveMemory(&ie_lists->vht_op, eid_ptr->Octet, sizeof(VHT_OP_IE));
-				ie_lists->vht_op_len = eid_ptr->Len;
-				MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("%s():IE_VHT_OP\n", __FUNCTION__));
-			}
-
-		case IE_OPERATING_MODE_NOTIFY:
-			if (eid_ptr->Len == sizeof(OPERATING_MODE)) {
-				ie_lists->operating_mode_len = sizeof(OPERATING_MODE);
-				NdisMoveMemory(&ie_lists->operating_mode, &eid_ptr->Octet[0], sizeof(OPERATING_MODE));
-				MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("%s():IE_OPERATING_MODE_NOTIFY!\n", __FUNCTION__));
-			}
-			break;
-#endif /* DOT11_VHT_AC */
 
             default:
                 break;
@@ -1155,7 +1088,7 @@ VOID ap_cmm_peer_assoc_req_action(
 
 #ifdef MT_MAC										
 		if (pAd->chipCap.hif_type == HIF_MT)
-			CmdProcAddRemoveKey(pAd, 1, pEntry->apidx, 0, pEntry->wcid, PAIRWISEKEYTABLE, &pEntry->PairwiseKey, pEntry->Addr);
+			CmdProcAddRemoveKey(pAd, 1, pEntry->func_tb_idx, 0, pEntry->wcid, PAIRWISEKEYTABLE, &pEntry->PairwiseKey, pEntry->Addr);
 #endif
 
 #ifdef DOT1X_SUPPORT
@@ -1245,20 +1178,6 @@ VOID ap_cmm_peer_assoc_req_action(
 	*/
 	pEntry->RateLen = ie_list->SupportedRatesLen;
 
-#ifdef DOT11_VHT_AC
-#ifdef RT_BIG_ENDIAN
-	// TODO: shiang-usw, change this endian swap mechanism!
-	NdisCopyMemory(&tmp_1,&ie_list->vht_cap.vht_cap, 4);
-	tmp_1=SWAP32(tmp_1);
-	NdisCopyMemory(&ie_list->vht_cap.vht_cap,&tmp_1, 4);
-	
-	NdisCopyMemory(&tmp_2,&(ie_list->vht_cap.mcs_set), 8);
-	tmp_2=SWAP64(tmp_2);
-	NdisCopyMemory(&(ie_list->vht_cap.mcs_set),&tmp_2, 8);
-	//SWAP32((UINT32)vht_cap_ie.vht_cap);
-	//SWAP32((UINT32)vht_cap_ie.mcs_set);
-#endif /* RT_BIG_ENDIAN */
-#endif
 
 	RTMPSetSupportMCS(pAd,
 					OPMODE_AP,
@@ -1267,10 +1186,6 @@ VOID ap_cmm_peer_assoc_req_action(
 					ie_list->SupportedRatesLen,
 					NULL,
 					0,
-#ifdef DOT11_VHT_AC
-					ie_list->vht_cap_len,
-					&ie_list->vht_cap,
-#endif /* DOT11_VHT_AC */
 					&ie_list->HTCapability,
 					ie_list->ht_cap_len);
 
@@ -1279,21 +1194,6 @@ VOID ap_cmm_peer_assoc_req_action(
 
 
 
-#ifdef DOT11_VHT_AC
-	if (ie_list->vht_cap_len)
-	{
-//+++Add by shiang for debug
-		if (WMODE_CAP_AC(pAd->CommonCfg.PhyMode)) {
-			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("%s():Peer is VHT capable device!\n", __FUNCTION__));
-
-			NdisMoveMemory(&pEntry->ext_cap, &ie_list->ExtCapInfo, sizeof(ie_list->ExtCapInfo));
-			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\tOperatingModeNotification=%d\n",
-						pEntry->ext_cap.operating_mode_notification));
-			//dump_vht_cap(pAd, &ie_list->vht_cap);
-		}
-//---Add by shiang for debug
-	}
-#endif /* DOT11_VHT_AC */
 
 	if (StatusCode == MLME_ASSOC_REJ_DATA_RATE)
 		RTMPSendWirelessEvent(pAd, IW_STA_MODE_EVENT_FLAG, pEntry->Addr, wdev->wdev_idx, 0);
@@ -1581,17 +1481,47 @@ SendAssocResponse:
 	 	}
 #endif /* DOT11N_DRAFT3 */
 
-#ifdef DOT11_VHT_AC
-		if (WMODE_CAP_AC(pAd->CommonCfg.PhyMode) &&
-			(pAd->CommonCfg.Channel > 14) &&
-			(ie_list->vht_cap_len))
-		{
-			FrameLen += build_vht_ies(pAd, pOutBuffer + FrameLen, SUBTYPE_ASSOC_RSP);
-		}
-#endif /* DOT11_VHT_AC */
 	}
 #endif /* DOT11_N_SUPPORT */
 
+#ifdef CONFIG_HOTSPOT_R2
+	/* qosmap IE */
+	printk("entry=%d\n", pEntry->QosMapSupport);
+	if (pEntry->QosMapSupport)
+	{
+		ULONG	TmpLen;
+		UCHAR	QosMapIE, ielen = 0, i = 0, explen = 0;
+		PHOTSPOT_CTRL pHSCtrl =  &pAd->ApCfg.MBSSID[pEntry->func_tb_idx].HotSpotCtrl;
+
+		if (pHSCtrl->QosMapEnable)
+		{
+			QosMapIE = IE_QOS_MAP_SET;
+		
+			for (i=0;i<21;i++)
+ 			{
+ 				if (pHSCtrl->DscpException[i] == 0xffff)
+		 			break;
+ 				else
+ 					explen += 2;
+ 			}
+ 	
+ 			pEntry->DscpExceptionCount = explen;
+ 			memcpy((UCHAR *)pEntry->DscpRange, (UCHAR *)pHSCtrl->DscpRange, 16);
+ 			memcpy((UCHAR *)pEntry->DscpException, (UCHAR *)pHSCtrl->DscpException, 42);
+ 		
+ 			ielen = explen+16;
+		
+			MakeOutgoingFrame(pOutBuffer+ FrameLen, &TmpLen,
+					1,			&QosMapIE,
+					1,			&ielen,
+					explen,		pEntry->DscpException,
+					16,			pEntry->DscpRange,
+					END_OF_ARGS);
+					
+			FrameLen += TmpLen;			
+		}
+	}
+#endif /* CONFIG_HOTSPOT_R2 */
 
 		/* 7.3.2.27 Extended Capabilities IE */
 		{
@@ -1618,12 +1548,25 @@ SendAssocResponse:
 #endif /* DOT11N_DRAFT3 */
 #endif /* DOT11_N_SUPPORT */
 
+#ifdef DOT11V_WNM_SUPPORT
+		if (IS_BSS_TRANSIT_MANMT_SUPPORT(pAd, pEntry->func_tb_idx))
+		{
+			if( ie_list->ExtCapInfo.BssTransitionManmt == 1)
+			{
+				extCapInfo.BssTransitionManmt = 1;
+				pEntry->bBSSMantSTASupport = TRUE;
+			}			
+		}
+		if (IS_WNMDMS_SUPPORT(pAd, pEntry->func_tb_idx))
+		{
+			if ( ie_list->ExtCapInfo.DMSSupport == 1)
+			{
+				extCapInfo.DMSSupport = 1;
+				pEntry->bDMSSTASupport = TRUE;
+			}
+		}
+#endif /* DOT11V_WNM_SUPPORT */
 
-#ifdef DOT11_VHT_AC
-		if (WMODE_CAP_AC(pAd->CommonCfg.PhyMode) &&
-			(pAd->CommonCfg.Channel > 14))
-			extCapInfo.operating_mode_notification = 1;
-#endif /* DOT11_VHT_AC */
 
 		pInfo = (UCHAR *)(&extCapInfo);
 		for (infoPos = 0; infoPos < extInfoLen; infoPos++)
@@ -1763,6 +1706,30 @@ SendAssocResponse:
 			{
 				MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("SINGLE_DEVICE CFG : GO NOITFY THE CLIENT ASSOCIATED\n"));
 				CFG80211OS_NewSta(pAd->net_dev, ie_list->Addr2, (PUCHAR)Elem->Msg, Elem->MsgLen);
+				if (pEntry->WepStatus == Ndis802_11WEPEnabled)
+				{
+					/* Set WEP key to ASIC */
+					UCHAR KeyIdx = 0;
+					UCHAR CipherAlg = 0;
+
+					KeyIdx = wdev->DefaultKeyId;					
+					CipherAlg = pAd->SharedKey[pEntry->func_tb_idx][KeyIdx].CipherAlg;
+
+					/*
+						If WEP is used, set pair-wise cipherAlg into WCID
+						attribute table for this entry.
+					*/
+					RTMP_SET_WCID_SEC_INFO(pAd, 
+											pEntry->func_tb_idx, 
+											KeyIdx, 
+											CipherAlg, 
+											pEntry->wcid, 
+											SHAREDKEYTABLE);
+#ifdef MT_MAC										
+					if (pAd->chipCap.hif_type == HIF_MT)
+						CmdProcAddRemoveKey(pAd, 0, pEntry->func_tb_idx, KeyIdx, pEntry->wcid, PAIRWISEKEYTABLE, &pAd->SharedKey[pEntry->func_tb_idx][KeyIdx], pEntry->Addr);
+#endif										
+				}						
 			}
         }
 		else
@@ -2060,7 +2027,7 @@ VOID APPeerDisassocReqAction(RTMP_ADAPTER *pAd, MLME_QUEUE_ELEM *Elem)
 				MlmeEnqueue(pAd, APCLI_CTRL_STATE_MACHINE, APCLI_CTRL_DISCONNECT_REQ, 0, NULL,
 								(64 + MAX_EXT_MAC_ADDR_SIZE*apCliIdx + CliIdx));
 						RTMP_MLME_HANDLER(pAd);
-						RTMPRemoveRepeaterEntry(pAd, apCliIdx, CliIdx);
+						//RTMPRemoveRepeaterEntry(pAd, apCliIdx, CliIdx);
 			}
 		}
 #endif /* MAC_REPEATER_SUPPORT */

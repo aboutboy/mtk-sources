@@ -58,16 +58,22 @@
 
 
 VOID CFG80211_SwitchTxChannel(RTMP_ADAPTER *pAd, ULONG Data)
-
 {
+	DBGPRINT(RT_DEBUG_INFO,("%s\n", __FUNCTION__));
 
 	//UCHAR lock_channel = CFG80211_getCenCh(pAd, Data);
-
-	UCHAR lock_channel = Data;
-#ifdef RT_CFG80211_P2P_MULTI_CHAN_SUPPORT
-	BSS_STRUCT *pMbss = &pAd->ApCfg.MBSSID[CFG_GO_BSSID_IDX];
+	BSS_STRUCT *pMbss = &pAd->ApCfg.MBSSID[MAIN_MBSSID];
 	struct wifi_dev *wdev = &pMbss->wdev;
 
+	UCHAR lock_channel = Data;
+	if(wdev->Hostapd == Hostapd_CFG && pAd->CommonCfg.BBPCurrentBW != BW_20)
+		return;
+#ifdef RT_CFG80211_P2P_MULTI_CHAN_SUPPORT
+	pMbss = &pAd->ApCfg.MBSSID[CFG_GO_BSSID_IDX];
+	wdev = &pMbss->wdev;
+
+
+	
 	if (pAd->Mlme.bStartMcc == TRUE)
 		return;
 
@@ -97,6 +103,8 @@ VOID CFG80211_SwitchTxChannel(RTMP_ADAPTER *pAd, ULONG Data)
 #endif /* RT_CFG80211_P2P_MULTI_CHAN_SUPPORT */
 	{
 		bbp_set_bw(pAd, BW_20);
+		
+		
 		AsicSwitchChannel(pAd, lock_channel, FALSE);
 		AsicLockChannel(pAd, lock_channel);
 		
@@ -424,7 +432,7 @@ VOID CFG80211_ParseBeaconIE(RTMP_ADAPTER *pAd, BSS_STRUCT *pMbss, struct wifi_de
 				NdisMoveMemory(pMbss->RSN_IE[0], wpa_ie+2, wpa_ie[1]);//copy rsn ie			
 		}
 		else {
-			DBGPRINT(RT_DEBUG_TRACE,("%s:: Open/None case\n", __FUNCTION__));
+			DBGPRINT(RT_DEBUG_TRACE,("%s:: WPA Open/None case\n", __FUNCTION__));
 			wdev->AuthMode = Ndis802_11AuthModeOpen;		
 		}	
 	}
@@ -562,23 +570,36 @@ VOID CFG80211_ParseBeaconIE(RTMP_ADAPTER *pAd, BSS_STRUCT *pMbss, struct wifi_de
 						DBGPRINT(RT_DEBUG_TRACE,("WPA2 Mix TKIPAES\n"));
 						bMix= TRUE;
 					}
-					pMbss->RSNIE_Len[0] = rsn_ie[1];
-					NdisMoveMemory(pMbss->RSN_IE[0], rsn_ie+2, rsn_ie[1]);//copy rsn ie			
-			}
-			else {
-				DBGPRINT(RT_DEBUG_TRACE,("%s:: Open/None case\n", __FUNCTION__));
-				wdev->AuthMode = Ndis802_11AuthModeOpen;			
-			}
-		}
 
+						if (bWPA2 && bWPA)
+						{
+							pMbss->RSNIE_Len[1] = rsn_ie[1];
+							NdisMoveMemory(pMbss->RSN_IE[1], rsn_ie+2, rsn_ie[1]);//copy rsn ie
+						}
+						else
+						{
+							pMbss->RSNIE_Len[0] = rsn_ie[1];
+							NdisMoveMemory(pMbss->RSN_IE[0], rsn_ie+2, rsn_ie[1]);//copy rsn ie
+						}
+									
+				}
+				else {
+					DBGPRINT(RT_DEBUG_TRACE,("%s:: RSN Open/None case\n", __FUNCTION__));
+					wdev->AuthMode = Ndis802_11AuthModeOpen;			
+				}
+			}
+
+		}
 
 		if (bWPA2 && bWPA)
 		{
-			if (bMix)
+			wdev->AuthMode = Ndis802_11AuthModeWPA1PSKWPA2PSK;
+			if(bMix)
 			{
 				wdev->WpaMixPairCipher = WPA_TKIPAES_WPA2_TKIPAES;
-				wdev->WepStatus = Ndis802_11TKIPAESMix;
+				wdev->WepStatus = Ndis802_11TKIPAESMix;							
 			}
+			
 		} else if (bWPA2) {
 			if (bMix)
 			{
@@ -592,7 +613,11 @@ VOID CFG80211_ParseBeaconIE(RTMP_ADAPTER *pAd, BSS_STRUCT *pMbss, struct wifi_de
 				wdev->WepStatus = Ndis802_11TKIPAESMix;
 			}
 		}	
-	}
+
+		//wdev->GroupKeyWepStatus = Ndis802_11AESEnable;
+		DBGPRINT(RT_DEBUG_TRACE,("\n bwpa2 %d, bwpa %d, bmix %d,AuthMode = %s ,wdev->WpaMixPairCipher = %d\
+		wdev->WepStatus = %d wdev->GroupKeyWepStatus %d pMbss->wdev.WepStatus = %d\n"
+		,bWPA2,bWPA,bMix,GetAuthMode(wdev->AuthMode),wdev->WpaMixPairCipher,wdev->WepStatus,wdev->GroupKeyWepStatus,pMbss->wdev.WepStatus));
 }
 #endif /* CONFIG_AP_SUPPORT */
 #endif /* RT_CFG80211_SUPPORT */

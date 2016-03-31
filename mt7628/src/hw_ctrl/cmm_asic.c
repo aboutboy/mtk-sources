@@ -98,6 +98,28 @@ UINT32 AsicGetChBusyCnt(RTMP_ADAPTER *pAd, UCHAR ch_idx)
 }
 
 
+#ifdef CONFIG_STA_SUPPORT
+VOID AsicUpdateAutoFallBackTable(RTMP_ADAPTER *pAd, UCHAR *pRateTable)
+{
+#if defined(RTMP_MAC) || defined(RLT_MAC)
+	if (pAd->chipCap.hif_type == HIF_RTMP ||pAd->chipCap.hif_type == HIF_RLT)
+	{
+		RtAsicUpdateAutoFallBackTable(pAd, pRateTable);
+		return;	
+	}
+#endif
+
+#ifdef MT_MAC
+	if (pAd->chipCap.hif_type == HIF_MT) 
+	{
+		MtAsicUpdateAutoFallBackTable(pAd, pRateTable);
+		return;
+	}
+#endif
+
+	AsicNotSupportFunc(pAd, __FUNCTION__);
+}
+#endif /* CONFIG_STA_SUPPORT */
 
 
 INT AsicSetAutoFallBack(RTMP_ADAPTER *pAd, BOOLEAN enable)
@@ -275,6 +297,55 @@ VOID AsicResetBBPAgent(RTMP_ADAPTER *pAd)
 }
 
 
+#ifdef CONFIG_STA_SUPPORT
+/*
+	==========================================================================
+	Description:
+		put PHY to sleep here, and set next wakeup timer. PHY doesn't not wakeup 
+		automatically. Instead, MCU will issue a TwakeUpInterrupt to host after
+		the wakeup timer timeout. Driver has to issue a separate command to wake
+		PHY up.
+
+	IRQL = DISPATCH_LEVEL
+
+	==========================================================================
+ */
+VOID AsicSleepThenAutoWakeup(
+	IN PRTMP_ADAPTER pAd, 
+	IN USHORT TbttNumToNextWakeUp) 
+{
+	RTMP_STA_SLEEP_THEN_AUTO_WAKEUP(pAd, TbttNumToNextWakeUp);
+}
+
+/*
+	==========================================================================
+	Description:
+		AsicForceWakeup() is used whenever manual wakeup is required
+		AsicForceSleep() should only be used when not in INFRA BSS. When
+		in INFRA BSS, we should use AsicSleepThenAutoWakeup() instead.
+	==========================================================================
+ */
+VOID AsicForceSleep(RTMP_ADAPTER *pAd)
+{
+
+}
+
+/*
+	==========================================================================
+	Description:
+		AsicForceWakeup() is used whenever Twakeup timer (set via AsicSleepThenAutoWakeup)
+		expired.
+
+	IRQL = PASSIVE_LEVEL
+	IRQL = DISPATCH_LEVEL
+	==========================================================================
+ */
+VOID AsicForceWakeup(RTMP_ADAPTER *pAd, BOOLEAN bFromTx)
+{
+    MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_INFO, ("--> AsicForceWakeup \n"));
+    RTMP_STA_FORCE_WAKEUP(pAd, bFromTx);
+}
+#endif /* CONFIG_STA_SUPPORT */
 
 
 /*
@@ -673,6 +744,19 @@ VOID AsicEnableBssSync(PRTMP_ADAPTER pAd, USHORT BeaconPeriod)
 		MT_BSS_SYNC_CTRL_T bssSync;
 		NdisZeroMemory(&bssSync,sizeof(MT_BSS_SYNC_CTRL_T));
 
+#ifdef CONFIG_STA_SUPPORT
+		IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+		{
+			
+			struct wifi_dev *wdev = &pAd->StaCfg.wdev;	
+			bssSync.BssOpMode = MT_BSS_MODE_STA;
+			bssSync.PreTbttInterval = 0x50;
+			bssSync.BssSet = 0;
+			bssSync.BeaconPeriod = wdev->ucBeaconPeriod;
+			bssSync.DtimPeriod = wdev->ucDtimPeriod;
+			MtAsicEnableBssSync(pAd, bssSync);
+		}
+#endif
 
 		
 #ifdef CONFIG_AP_SUPPORT
@@ -723,6 +807,46 @@ VOID AsicEnableApBssSync(RTMP_ADAPTER *pAd, USHORT BeaconPeriod)
 }
 
 
+#ifdef CONFIG_STA_SUPPORT
+/*
+	==========================================================================
+	Description:
+	Note: 
+		BEACON frame in shared memory should be built ok before this routine
+		can be called. Otherwise, a garbage frame maybe transmitted out every
+		Beacon period.
+
+	IRQL = DISPATCH_LEVEL
+	
+	==========================================================================
+ */
+VOID AsicEnableIbssSync(RTMP_ADAPTER *pAd)
+{
+#if defined(RTMP_MAC) || defined(RLT_MAC)
+	if (pAd->chipCap.hif_type == HIF_RTMP ||pAd->chipCap.hif_type == HIF_RLT)
+	{
+		RtAsicEnableIbssSync(pAd);
+		return;
+	}
+#endif
+
+#ifdef MT_MAC
+	if (pAd->chipCap.hif_type == HIF_MT)
+	{
+		MT_BSS_SYNC_CTRL_T bssSync;
+		NdisZeroMemory(&bssSync,sizeof(MT_BSS_SYNC_CTRL_T));
+		bssSync.BeaconPeriod = pAd->CommonCfg.BeaconPeriod;
+		bssSync.BssOpMode= MT_BSS_MODE_ADHOC;		
+		bssSync.PreTbttInterval = 0x50;
+		bssSync.BssSet = 0;
+		MtAsicEnableBssSync(pAd, bssSync);
+		return;
+	}
+#endif
+
+	AsicNotSupportFunc(pAd, __FUNCTION__);
+}
+#endif /* CONFIG_STA_SUPPORT */
 
 
 
@@ -775,6 +899,13 @@ VOID AsicSetEdcaParm(RTMP_ADAPTER *pAd, PEDCA_PARM pEdcaParm)
 	{
 		OPSTATUS_SET_FLAG(pAd, fOP_STATUS_WMM_INUSED);
 		
+#ifdef CONFIG_STA_SUPPORT
+		IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+		{
+			if (INFRA_ON(pAd))
+				CLIENT_STATUS_SET_FLAG(&pAd->MacTab.Content[BSSID_WCID], fCLIENT_STATUS_WMM_CAPABLE);
+		}
+#endif /* CONFIG_STA_SUPPORT */
 
 		NdisMoveMemory(&pAd->CommonCfg.APEdcaParm, pEdcaParm, sizeof(EDCA_PARM));
 		if (!ADHOC_ON(pAd))
@@ -881,6 +1012,10 @@ VOID AsicSetSlotTime(
 	UINT32 SlotTime = 0;
 	UINT32 SifsTime;
 
+#ifdef CONFIG_STA_SUPPORT
+	if (pAd->CommonCfg.Channel > 14)
+		bUseShortSlotTime = TRUE;
+#endif /* CONFIG_STA_SUPPORT */
 
 	if (bUseShortSlotTime && OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_SHORT_SLOT_INUSED))
 		return;
@@ -894,10 +1029,40 @@ VOID AsicSetSlotTime(
 
 	SlotTime = (bUseShortSlotTime)? 9 : 20;
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		/* force using short SLOT time for FAE to demo performance when TxBurst is ON*/
+		if (((pAd->StaActive.SupportedPhyInfo.bHtEnable == FALSE) && (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_WMM_INUSED)))
+#ifdef DOT11_N_SUPPORT
+			|| ((pAd->StaActive.SupportedPhyInfo.bHtEnable == TRUE) && (pAd->CommonCfg.BACapability.field.Policy == BA_NOTUSE))
+#endif /* DOT11_N_SUPPORT */
+			)
+		{
+			/* In this case, we will think it is doing Wi-Fi test*/
+			/* And we will not set to short slot when bEnableTxBurst is TRUE.*/
+		}
+		else if (pAd->CommonCfg.bEnableTxBurst)
+		{
+			OPSTATUS_SET_FLAG(pAd, fOP_STATUS_SHORT_SLOT_INUSED);
+			SlotTime = 9;
+		}
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 	
 	/* For some reasons, always set it to short slot time.*/
 	/* ToDo: Should consider capability with 11B*/
+#ifdef CONFIG_STA_SUPPORT 
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		if (pAd->StaCfg.BssType == BSS_ADHOC)
+		{
+			OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_SHORT_SLOT_INUSED);
+			SlotTime = 20;
+		}
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 	if (channel > 14)
 		SifsTime = SIFS_TIME_5G;

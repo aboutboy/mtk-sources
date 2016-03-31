@@ -278,6 +278,12 @@ BOOLEAN PeerBeaconAndProbeRspSanity_Old(
     OUT PQOS_CAPABILITY_PARM pQosCapability,
     OUT ULONG *pRalinkIe,
     OUT UCHAR *pHtCapabilityLen,
+#ifdef CONFIG_STA_SUPPORT
+    OUT UCHAR *pPreNHtCapabilityLen,
+#ifdef NATIVE_WPA_SUPPLICANT_SUPPORT
+    OUT UCHAR *pSelReg,
+#endif /* NATIVE_WPA_SUPPLICANT_SUPPORT */
+#endif /* CONFIG_STA_SUPPORT */
     OUT HT_CAPABILITY_IE *pHtCapability,
     OUT EXT_CAP_INFO_ELEMENT	*pExtCapInfo,
     OUT UCHAR *AddHtInfoLen,
@@ -287,6 +293,10 @@ BOOLEAN PeerBeaconAndProbeRspSanity_Old(
     OUT PNDIS_802_11_VARIABLE_IEs pVIE)
 {
     UCHAR				*Ptr;
+#ifdef CONFIG_STA_SUPPORT
+	UCHAR 				TimLen;
+	UCHAR                           SubType;
+#endif /* CONFIG_STA_SUPPORT */
     PFRAME_802_11		pFrame;
     PEID_STRUCT         pEid;
     UCHAR				Sanity;
@@ -323,6 +333,13 @@ BOOLEAN PeerBeaconAndProbeRspSanity_Old(
     *pAironetCellPowerLimit = 0xFF;  /* Default of AironetCellPowerLimit is 0xFF*/
     *LengthVIE = 0;					/* Set the length of VIE to init value 0*/
     *pHtCapabilityLen = 0;					/* Set the length of VIE to init value 0*/
+#ifdef CONFIG_STA_SUPPORT
+	if (pAd->OpMode == OPMODE_STA)
+		*pPreNHtCapabilityLen = 0;					/* Set the length of VIE to init value 0*/
+#ifdef NATIVE_WPA_SUPPLICANT_SUPPORT
+    *pSelReg = 0;
+#endif /* NATIVE_WPA_SUPPLICANT_SUPPORT */
+#endif /* CONFIG_STA_SUPPORT */
     *AddHtInfoLen = 0;					/* Set the length of VIE to init value 0*/
     NdisZeroMemory(pExtCapInfo, sizeof(EXT_CAP_INFO_ELEMENT));
     *pRalinkIe = 0;
@@ -334,6 +351,10 @@ BOOLEAN PeerBeaconAndProbeRspSanity_Old(
     pQosCapability->bValid = FALSE; /* default: no IE_QOS_CAPABILITY found*/
     
     pFrame = (PFRAME_802_11)Msg;
+#ifdef CONFIG_STA_SUPPORT    
+    /* get subtype from header*/
+    SubType = (UCHAR)pFrame->Hdr.FC.SubType;
+#endif
     /* get Addr2 and BSSID from header*/
     COPY_MAC_ADDR(pAddr2, pFrame->Hdr.Addr2);
     COPY_MAC_ADDR(pBssid, pFrame->Hdr.Addr3);
@@ -440,6 +461,16 @@ BOOLEAN PeerBeaconAndProbeRspSanity_Old(
 				*(USHORT *)(&pHtCapability->ExtHtCapInfo) = cpu2le16(*(USHORT *)(&pHtCapability->ExtHtCapInfo));
 #endif /* UNALIGNMENT_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+				IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+				{
+					*pPreNHtCapabilityLen = 0;	/* Now we only support 26 bytes.*/
+
+					Ptr = (PUCHAR) pVIE;
+					NdisMoveMemory(Ptr + *LengthVIE, &pEid->Eid, pEid->Len + 2);
+					*LengthVIE += (pEid->Len + 2);
+				}
+#endif /* CONFIG_STA_SUPPORT */
 			}
 			else
 			{
@@ -462,6 +493,14 @@ BOOLEAN PeerBeaconAndProbeRspSanity_Old(
 				*(USHORT *)(&AddHtInfo->AddHtInfo2) = cpu2le16(*(USHORT *)(&AddHtInfo->AddHtInfo2));
 				*(USHORT *)(&AddHtInfo->AddHtInfo3) = cpu2le16(*(USHORT *)(&AddHtInfo->AddHtInfo3));
            
+#ifdef CONFIG_STA_SUPPORT
+				IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+				{
+			                Ptr = (PUCHAR) pVIE;
+			                NdisMoveMemory(Ptr + *LengthVIE, &pEid->Eid, pEid->Len + 2);
+			                *LengthVIE += (pEid->Len + 2);
+				}
+#endif /* CONFIG_STA_SUPPORT */
 			}
 			else
 			{
@@ -488,6 +527,16 @@ BOOLEAN PeerBeaconAndProbeRspSanity_Old(
                 if(pEid->Len == 1)
                 {
                     *pChannel = *pEid->Octet;
+#ifdef CONFIG_STA_SUPPORT
+					IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+					{
+						if (ChannelSanity(pAd, *pChannel) == 0)
+						{
+							
+							goto SanityCheck;
+						}
+					}
+#endif /* CONFIG_STA_SUPPORT */
                     Sanity |= 0x4;
                 }
                 else
@@ -529,6 +578,18 @@ BOOLEAN PeerBeaconAndProbeRspSanity_Old(
                 }
                 break;
 
+#ifdef CONFIG_STA_SUPPORT
+            case IE_TIM:
+                if(SubType == SUBTYPE_BEACON)
+                {
+
+					if (INFRA_ON(pAd) && NdisEqualMemory(pBssid, pAd->CommonCfg.Bssid, MAC_ADDR_LEN))
+                    {
+                        GetTimBit((PCHAR)pEid, pAd->StaActive.Aid, &TimLen, pBcastFlag, pDtimCount, pDtimPeriod, pMessageToMe);
+                    }
+                }
+                break;
+#endif /* CONFIG_STA_SUPPORT */
             case IE_CHANNEL_SWITCH_ANNOUNCEMENT:
                 if(pEid->Len == 3)
                 {
@@ -551,6 +612,28 @@ BOOLEAN PeerBeaconAndProbeRspSanity_Old(
         			else
         				*pRalinkIe = 0xf0000000; /* Set to non-zero value (can't set bit0-2) to represent this is Ralink Chip. So at linkup, we will set ralinkchip flag.*/
                 }
+#ifdef CONFIG_STA_SUPPORT
+#ifdef DOT11_N_SUPPORT
+		/* This HT IE is before IEEE draft set HT IE value.2006-09-28 by Jan.*/
+                
+                /* Other vendors had production before IE_HT_CAP value is assigned. To backward support those old-firmware AP,*/
+                /* Check broadcom-defiend pre-802.11nD1.0 OUI for HT related IE, including HT Capatilities IE and HT Information IE*/
+                else if ((*pHtCapabilityLen == 0) && NdisEqualMemory(pEid->Octet, BROADCOM_OUI, 3) && (pEid->Len >= 4) && (pAd->OpMode == OPMODE_STA))
+                {
+                    if ((pEid->Octet[3] == OUI_BROADCOM_HT) && (pEid->Len >= 30) && (*pHtCapabilityLen == 0))
+                    {
+                        NdisMoveMemory(pHtCapability, &pEid->Octet[4], sizeof(HT_CAPABILITY_IE));
+                        *pPreNHtCapabilityLen = SIZE_HT_CAP_IE;
+                    }
+
+                    if ((pEid->Octet[3] == OUI_PREN_ADD_HT) && (pEid->Len >= 26))
+                    {
+                        NdisMoveMemory(AddHtInfo, &pEid->Octet[4], sizeof(ADD_HT_INFO_IE));
+                        *AddHtInfoLen = SIZE_ADD_HT_INFO_IE;
+                    }
+                }
+#endif /* DOT11_N_SUPPORT */
+#endif /* CONFIG_STA_SUPPORT */
                 else if (NdisEqualMemory(pEid->Octet, WPA_OUI, 4))
                 {
                     /* Copy to pVIE which will report to bssid list.*/
@@ -649,6 +732,43 @@ BOOLEAN PeerBeaconAndProbeRspSanity_Old(
 					}
 
 					
+#ifdef CONFIG_STA_SUPPORT
+#ifdef NATIVE_WPA_SUPPLICANT_SUPPORT
+			if (SubType == SUBTYPE_BEACON)
+			{
+				PUCHAR		pData;
+				INT			Len = 0;
+				USHORT		DataLen = 0;
+				PWSC_IE		pWscIE;
+
+				pData = (PUCHAR) pEid->Octet + 4;
+				Len = (SHORT)(pEid->Len - 4);
+
+				while (Len > 0)
+				{
+					WSC_IE	WscIE;
+					NdisMoveMemory(&WscIE, pData, sizeof(WSC_IE));
+					// Check for WSC IEs
+					pWscIE = &WscIE;
+					
+					if (be2cpu16(pWscIE->Type) == 0x1041 /*WSC_ID_SEL_REGISTRAR*/ )
+					{
+						DataLen = be2cpu16(pWscIE->Length);
+						NdisMoveMemory(pSelReg, pData + 4, DataLen);
+						break;
+					}
+					
+					// Set the offset and look for next WSC Tag information
+					// Since Type and Length are both short type, we need to offset 4, not 2
+					pData += (be2cpu16(pWscIE->Length) + 4);
+					Len   -= (be2cpu16(pWscIE->Length) + 4);
+				}
+
+
+				//WscGetDataFromPeerByTag(pAd, pPeerWscIe, PeerWscIeLen, WSC_ID_SEL_REGISTRAR, &bSelReg, NULL);	
+			}
+#endif /* NATIVE_WPA_SUPPLICANT_SUPPORT */
+#endif /* CONFIG_STA_SUPPORT */
 
 					
                 }
@@ -727,6 +847,15 @@ BOOLEAN PeerBeaconAndProbeRspSanity_Old(
                 break;
 #endif /* WAPI_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+#if defined (EXT_BUILD_CHANNEL_LIST) || defined (RT_CFG80211_SUPPORT)
+			case IE_COUNTRY:
+				Ptr = (PUCHAR) pVIE;
+                NdisMoveMemory(Ptr + *LengthVIE, &pEid->Eid, pEid->Len + 2);
+                *LengthVIE += (pEid->Len + 2);
+				break;
+#endif /* EXT_BUILD_CHANNEL_LIST */
+#endif /* CONFIG_STA_SUPPORT */
 
             case IE_QBSS_LOAD:
                 if (pEid->Len == 5)
@@ -775,6 +904,23 @@ BOOLEAN PeerBeaconAndProbeRspSanity_Old(
 			Sanity |= 0x4;
 		}
 
+#ifdef CONFIG_STA_SUPPORT 
+		IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+		{
+			if ((Sanity & 0x4) && (CtrlChannel != 0) && (CtrlChannel != *pChannel))
+			{
+				AddHtInfo->ControlChan = *pChannel;
+			}
+
+			if(RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS) &&
+				(Sanity & 0x4) && (CtrlChannel != 0) &&(CtrlChannel != pAd->LatchRfRegs.Channel) )
+			{
+				if (pPeerWscIe)
+					os_free_mem(NULL, pPeerWscIe);
+				return FALSE;
+			}
+		}
+#endif /* CONFIG_STA_SUPPORT */
 
 		if (pPeerWscIe && (PeerWscIeLen > 0) && (PeerWscIeLen <= 512) && ( bWscCheck == TRUE))
 		{
@@ -826,6 +972,10 @@ BOOLEAN PeerBeaconAndProbeRspSanity(
 	IN BOOLEAN bGetDtim)
 {
 	UCHAR *Ptr;
+#ifdef CONFIG_STA_SUPPORT
+	UCHAR TimLen;
+	UCHAR SubType;
+#endif /* CONFIG_STA_SUPPORT */
 	PFRAME_802_11 pFrame;
 	PEID_STRUCT pEid;
 	UCHAR Sanity;
@@ -854,6 +1004,10 @@ BOOLEAN PeerBeaconAndProbeRspSanity(
 	
 	pFrame = (PFRAME_802_11)Msg;
     
+#ifdef CONFIG_STA_SUPPORT   
+	/* get subtype from header*/
+	SubType = (UCHAR)pFrame->Hdr.FC.SubType;
+#endif
     /* get Addr2 and BSSID from header*/
     COPY_MAC_ADDR(&ie_list->Addr2[0], pFrame->Hdr.Addr2);
     COPY_MAC_ADDR(&ie_list->Bssid[0], pFrame->Hdr.Addr3);
@@ -958,6 +1112,16 @@ BOOLEAN PeerBeaconAndProbeRspSanity(
 				*(USHORT *)(&ie_list->HtCapability.ExtHtCapInfo) = cpu2le16(*(USHORT *)(&ie_list->HtCapability.ExtHtCapInfo));
 #endif /* UNALIGNMENT_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+				IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+				{
+					ie_list->PreNHtCapabilityLen = 0;	/* Now we only support 26 bytes.*/
+
+					Ptr = (PUCHAR) pVIE;
+					NdisMoveMemory(Ptr + *LengthVIE, &pEid->Eid, pEid->Len + 2);
+					*LengthVIE += (pEid->Len + 2);
+				}
+#endif /* CONFIG_STA_SUPPORT */
 			}
 			else
 			{
@@ -980,6 +1144,14 @@ BOOLEAN PeerBeaconAndProbeRspSanity(
 				*(USHORT *)(&ie_list->AddHtInfo.AddHtInfo2) = cpu2le16(*(USHORT *)(&ie_list->AddHtInfo.AddHtInfo2));
 				*(USHORT *)(&ie_list->AddHtInfo.AddHtInfo3) = cpu2le16(*(USHORT *)(&ie_list->AddHtInfo.AddHtInfo3));
 
+#ifdef CONFIG_STA_SUPPORT
+				IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+				{
+					Ptr = (PUCHAR) pVIE;
+					NdisMoveMemory(Ptr + *LengthVIE, &pEid->Eid, pEid->Len + 2);
+					*LengthVIE += (pEid->Len + 2);
+				}
+#endif /* CONFIG_STA_SUPPORT */
 			}
 			else
 			{
@@ -1004,6 +1176,15 @@ BOOLEAN PeerBeaconAndProbeRspSanity(
 			if(pEid->Len == 1)
 			{
 				ie_list->Channel = *pEid->Octet;
+#ifdef CONFIG_STA_SUPPORT
+				IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+				{
+					if (ChannelSanity(pAd, ie_list->Channel) == 0)
+					{
+						goto SanityCheck;
+					}
+				}
+#endif /* CONFIG_STA_SUPPORT */
 				Sanity |= 0x4;
 			}
 			else
@@ -1045,6 +1226,18 @@ BOOLEAN PeerBeaconAndProbeRspSanity(
 			}
 			break;
 
+#ifdef CONFIG_STA_SUPPORT
+		case IE_TIM:
+			if(SubType == SUBTYPE_BEACON)
+			{
+				if ((INFRA_ON(pAd) && NdisEqualMemory(&ie_list->Bssid[0], pAd->CommonCfg.Bssid, MAC_ADDR_LEN)) || bGetDtim)
+				{
+					GetTimBit((PCHAR)pEid, pAd->StaActive.Aid, &TimLen, &ie_list->BcastFlag,
+					&ie_list->DtimCount, &ie_list->DtimPeriod, &ie_list->MessageToMe);
+				}
+			}
+			break;
+#endif /* CONFIG_STA_SUPPORT */
 		case IE_CHANNEL_SWITCH_ANNOUNCEMENT:
 			if(pEid->Len == 3)
 				ie_list->NewChannel = pEid->Octet[1];	/*extract new channel number*/
@@ -1065,6 +1258,28 @@ BOOLEAN PeerBeaconAndProbeRspSanity(
 				else
 					ie_list->RalinkIe = 0xf0000000; /* Set to non-zero value (can't set bit0-2) to represent this is Ralink Chip. So at linkup, we will set ralinkchip flag.*/
 			}
+#ifdef CONFIG_STA_SUPPORT
+#ifdef DOT11_N_SUPPORT
+			/* This HT IE is before IEEE draft set HT IE value.2006-09-28 by Jan.*/
+
+			/* Other vendors had production before IE_HT_CAP value is assigned. To backward support those old-firmware AP,*/
+			/* Check broadcom-defiend pre-802.11nD1.0 OUI for HT related IE, including HT Capatilities IE and HT Information IE*/
+			else if ((ie_list->HtCapabilityLen == 0) && NdisEqualMemory(pEid->Octet, BROADCOM_OUI, 3) && (pEid->Len >= 4) && (pAd->OpMode == OPMODE_STA))
+			{
+				if ((pEid->Octet[3] == OUI_BROADCOM_HT) && (pEid->Len >= 30) && (ie_list->HtCapabilityLen == 0))
+				{
+					NdisMoveMemory(&ie_list->HtCapability, &pEid->Octet[4], sizeof(HT_CAPABILITY_IE));
+					ie_list->PreNHtCapabilityLen = SIZE_HT_CAP_IE;
+				}
+
+				if ((pEid->Octet[3] == OUI_PREN_ADD_HT) && (pEid->Len >= 26))
+				{
+					NdisMoveMemory(&ie_list->AddHtInfo, &pEid->Octet[4], sizeof(ADD_HT_INFO_IE));
+					ie_list->AddHtInfoLen = SIZE_ADD_HT_INFO_IE;
+				}
+			}
+#endif /* DOT11_N_SUPPORT */
+#endif /* CONFIG_STA_SUPPORT */
 			else if (NdisEqualMemory(pEid->Octet, WPA_OUI, 4))
 			{
 				/* Copy to pVIE which will report to bssid list.*/
@@ -1165,6 +1380,43 @@ BOOLEAN PeerBeaconAndProbeRspSanity(
 				}
 
 
+#ifdef CONFIG_STA_SUPPORT
+#ifdef NATIVE_WPA_SUPPLICANT_SUPPORT
+			if ( SubType == SUBTYPE_BEACON )
+			{
+				PUCHAR		pData;
+				INT			Len = 0;
+				USHORT		DataLen = 0;
+				PWSC_IE		pWscIE;
+
+				pData = (PUCHAR) pEid->Octet + 4;
+				Len = (SHORT)(pEid->Len - 4);
+
+				while (Len > 0)
+				{
+					WSC_IE	WscIE;
+					NdisMoveMemory(&WscIE, pData, sizeof(WSC_IE));
+					// Check for WSC IEs
+					pWscIE = &WscIE;
+					
+					if (be2cpu16(pWscIE->Type) == 0x1041 /*WSC_ID_SEL_REGISTRAR*/ )
+					{
+						DataLen = be2cpu16(pWscIE->Length);
+						NdisMoveMemory(&ie_list->selReg, pData + 4, sizeof(ie_list->selReg));
+						break;
+					}
+					
+					// Set the offset and look for next WSC Tag information
+					// Since Type and Length are both short type, we need to offset 4, not 2
+					pData += (be2cpu16(pWscIE->Length) + 4);
+					Len   -= (be2cpu16(pWscIE->Length) + 4);
+				}
+
+
+				//WscGetDataFromPeerByTag(pAd, pPeerWscIe, PeerWscIeLen, WSC_ID_SEL_REGISTRAR, &bSelReg, NULL);	
+			}
+#endif /* NATIVE_WPA_SUPPLICANT_SUPPORT */
+#endif /* CONFIG_STA_SUPPORT */
 
 			}
 
@@ -1241,6 +1493,15 @@ BOOLEAN PeerBeaconAndProbeRspSanity(
 			break;
 #endif /* WAPI_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+#if defined (EXT_BUILD_CHANNEL_LIST) || defined (RT_CFG80211_SUPPORT)
+		case IE_COUNTRY:
+			Ptr = (PUCHAR) pVIE;
+			NdisMoveMemory(Ptr + *LengthVIE, &pEid->Eid, pEid->Len + 2);
+			*LengthVIE += (pEid->Len + 2);
+			break;
+#endif /* EXT_BUILD_CHANNEL_LIST */
+#endif /* CONFIG_STA_SUPPORT */
 
 		case IE_QBSS_LOAD:
 			if (pEid->Len == 5)
@@ -1269,32 +1530,6 @@ BOOLEAN PeerBeaconAndProbeRspSanity(
 			}
 			break;
 
-#ifdef DOT11_VHT_AC
-		case IE_VHT_CAP:
-			if (pEid->Len == sizeof(VHT_CAP_IE)) {
-				NdisMoveMemory(&ie_list->vht_cap_ie, &pEid->Octet[0], sizeof(VHT_CAP_IE));
-				ie_list->vht_cap_len = pEid->Len;
-			}
-			break;
-		case IE_VHT_OP:
-			if (pEid->Len == sizeof(VHT_OP_IE)) {
-				NdisMoveMemory(&ie_list->vht_op_ie, &pEid->Octet[0], sizeof(VHT_OP_IE));
-				ie_list->vht_op_len = pEid->Len;
-			}
-			break;
-		case IE_OPERATING_MODE_NOTIFY:
-			if (pEid->Len == sizeof(OPERATING_MODE)) {
-				MAC_TABLE_ENTRY *pEntry = &pAd->MacTab.Content[BSSID_WCID];
-				OPERATING_MODE op_mode;
-				
-				NdisMoveMemory(&op_mode, &pEid->Octet[0], sizeof(OPERATING_MODE));
-				if (op_mode.rx_nss_type == 0) {
-					pEntry->force_op_mode = TRUE;
-					NdisMoveMemory(&pEntry->operating_mode, &op_mode, 1);
-				}
-				MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("%s() - IE_OPERATING_MODE_NOTIFY(=%d)\n", __FUNCTION__, pEid->Eid));
-			}
-#endif /* DOT11_VHT_AC */
 
 		default:
 			break;
@@ -1316,10 +1551,13 @@ BOOLEAN PeerBeaconAndProbeRspSanity(
 			ie_list->Channel = CtrlChannel;
 		else {
 			if (pAd->CommonCfg.RegTransmitSetting.field.BW == BW_40
-#ifdef DOT11_VHT_AC
-				|| pAd->CommonCfg.RegTransmitSetting.field.BW == BW_80
-#endif /* DOT11_VHT_AC */
 			) {
+#ifdef CONFIG_STA_SUPPORT
+				// TODO: shiang-usw, fix me for this check!!
+				if (pAd->MlmeAux.Channel)
+					ie_list->Channel = pAd->MlmeAux.Channel;
+				else
+#endif /* CONFIG_STA_SUPPORT */
 					ie_list->Channel = pAd->CommonCfg.Channel;
 			}
 			else
@@ -1620,6 +1858,12 @@ BOOLEAN MlmeAuthReqSanity(
      	) && 
         ((*pAddr & 0x01) == 0)) 
     {
+#ifdef CONFIG_STA_SUPPORT
+#ifdef WSC_INCLUDED
+		if (pAd->StaCfg.WscControl.bWscTrigger && (pAd->StaCfg.WscControl.WscConfMode != WSC_DISABLE))
+			*pAlg = AUTH_MODE_OPEN;
+#endif /* WSC_INCLUDED */
+#endif /* CONFIG_STA_SUPPORT */
         return TRUE;
     } 
     else 
@@ -1767,6 +2011,26 @@ NDIS_802_11_NETWORK_TYPE NetworkTypeInUseSanity(BSS_ENTRY *pBss)
 	return NetWorkType;
 }	
 
+#ifdef CONFIG_STA_SUPPORT
+#ifdef QOS_DLS_SUPPORT
+BOOLEAN MlmeDlsReqSanity(
+	IN PRTMP_ADAPTER pAd, 
+    IN VOID *Msg, 
+    IN ULONG MsgLen,
+    OUT PRT_802_11_DLS *pDLS,
+    OUT PUSHORT pReason)
+{
+	MLME_DLS_REQ_STRUCT *pInfo;
+
+    pInfo = (MLME_DLS_REQ_STRUCT *)Msg;
+    
+	*pDLS = pInfo->pDLS;
+	*pReason = pInfo->Reason;
+
+	return TRUE;
+}
+#endif /* QOS_DLS_SUPPORT */
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef QOS_DLS_SUPPORT
 BOOLEAN PeerDlsReqSanity(
@@ -2172,7 +2436,31 @@ BOOLEAN PeerProbeReqSanity(
                 }
 				break;
 
+#ifdef CONFIG_HOTSPOT
+			case IE_INTERWORKING: 
+				ProbeReqParam->AccessNetWorkType = (*eid_data) & 0x0F;
+
+				if (eid_len > 3)
+				{
+					if (eid_len == 7) 
+						NdisMoveMemory(ProbeReqParam->Hessid, eid_data + 1, MAC_ADDR_LEN);
+					else
+						NdisMoveMemory(ProbeReqParam->Hessid, eid_data + 3 , MAC_ADDR_LEN);
+
+					ProbeReqParam->IsHessid = TRUE;
+				}
+
+				ProbeReqParam->IsIWIE = TRUE;				
+				break;
+#endif
 			case IE_EXT_CAPABILITY:
+#ifdef CONFIG_HOTSPOT
+				if (eid_len >= 4)
+				{
+					if (((*(eid_data + 3)) & 0x80) == 0x80)
+						ProbeReqParam->IsIWCapability = TRUE;
+				}
+#endif
 				break;
             default:
                 break;

@@ -535,6 +535,8 @@ VOID	RTMPCalculateMICValue(
 	else
 #endif /* IGMP_SNOOP_SUPPORT */
 #endif /* CONFIG_AP_SUPPORT */
+#ifdef CONFIG_STA_SUPPORT
+#endif /* CONFIG_STA_SUPPORT */
 	{
 		RTMPInitMICEngine(
 			pAd,
@@ -852,6 +854,18 @@ BOOLEAN RTMPSoftDecryptTKIP(
 	if (!NdisEqualMemory(MIC, TrailMIC, LEN_TKIP_MIC))
 	{
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR, ("! TKIP MIC Error !\n"));	 /*MIC error.*/
+#ifdef CONFIG_STA_SUPPORT
+		/*RTMPReportMicError(pAd, &pWpaKey[KeyID]);	 marked by AlbertY @ 20060630 */
+#ifdef WPA_SUPPLICANT_SUPPORT
+        if (pAd->StaCfg.wpa_supplicant_info.WpaSupplicantUP) {
+                WpaSendMicFailureToWpaSupplicant(pAd->net_dev, pFrame->Addr2,
+                                                (pKey->Type == PAIRWISEKEY) ? TRUE : FALSE,
+                                                0 /*key id need be retrived by IV, actually supplicant didn't need it!*/, 
+                                                NULL);
+        } else
+#endif /* WPA_SUPPLICANT_SUPPORT */
+        RTMPReportMicError(pAd, pKey);
+#endif /* CONFIG_STA_SUPPORT */
 		return FALSE;		
 	}
 

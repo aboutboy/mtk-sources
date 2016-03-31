@@ -105,6 +105,8 @@ char const *pWirelessWscEventText[IW_WSC_EVENT_TYPE_NUM] = {
 	};
 #endif /* WSC_INCLUDED */
 
+#ifdef CONFIG_STA_SUPPORT
+#endif /* CONFIG_STA_SUPPORT */
 
 
 /*
@@ -173,6 +175,8 @@ VOID RtmpDrvSendWirelessEvent(
 			event_table_len = IW_WSC_EVENT_TYPE_NUM;
 			break;
 #endif /* WSC_INCLUDED */
+#ifdef CONFIG_STA_SUPPORT
+#endif /* CONFIG_STA_SUPPORT */
 	}
 	
 	if (event_table_len == 0)
@@ -222,6 +226,8 @@ VOID RtmpDrvSendWirelessEvent(
 		else if (type == IW_WSC_EVENT_FLAG_START)
 			pBufPtr += sprintf(pBufPtr, "%s", pWirelessWscEventText[event]);
 #endif /* WSC_INCLUDED */
+#ifdef CONFIG_STA_SUPPORT
+#endif /* CONFIG_STA_SUPPORT */
 		else
 			pBufPtr += sprintf(pBufPtr, "%s", "unknown event");
 		

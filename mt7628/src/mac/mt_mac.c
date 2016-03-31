@@ -229,46 +229,46 @@ VOID dump_rmac_info_normal(RTMP_ADAPTER *pAd, UCHAR *rmac_info)
 
 	hex_dump("RMAC_Info Raw Data: ", rmac_info, sizeof(RXD_BASE_STRUCT));
 
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\tRxData_BASE:\n"));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tPktType=%d(%s)\n",
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\tRxData_BASE:\n"));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tPktType=%d(%s)\n",
 					rxd_base->rxd_0.pkt_type,
 					rxd_pkt_type_str(rxd_base->rxd_0.pkt_type)));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tGroupValid=%x\n", rxd_base->rxd_0.grp_vld));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tRxByteCnt=%d\n", rxd_base->rxd_0.rx_byte_cnt));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tIP/UT=%d/%d\n", rxd_base->rxd_0.ip_sum, rxd_base->rxd_0.ut_sum));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tEtherTypeOffset=%d(WORD)\n", rxd_base->rxd_0.eth_type_offset));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tHTC/UC2ME/MC/BC=%d/%d/%d/%d\n",
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tGroupValid=%x\n", rxd_base->rxd_0.grp_vld));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tRxByteCnt=%d\n", rxd_base->rxd_0.rx_byte_cnt));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tIP/UT=%d/%d\n", rxd_base->rxd_0.ip_sum, rxd_base->rxd_0.ut_sum));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tEtherTypeOffset=%d(WORD)\n", rxd_base->rxd_0.eth_type_offset));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tHTC/UC2ME/MC/BC=%d/%d/%d/%d\n",
 				rxd_base->rxd_1.htc_vld, rxd_base->rxd_1.u2m,
 				rxd_base->rxd_1.mcast, rxd_base->rxd_1.bcast));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tBeacon with BMCast/Ucast=%d/%d\n",
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tBeacon with BMCast/Ucast=%d/%d\n",
 				rxd_base->rxd_1.beacon_mc, rxd_base->rxd_1.beacon_uc));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tKeyID=%d\n", rxd_base->rxd_1.key_id));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tChFrequency=%x\n", rxd_base->rxd_1.ch_freq));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tHdearLength(MAC)=%d\n", rxd_base->rxd_1.mac_hdr_len));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tHeaerOffset(HO)=%d\n", rxd_base->rxd_1.hdr_offset));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tHeaerTrans(H)=%d\n", rxd_base->rxd_1.hdr_trans));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tPayloadFormat(PF)=%d\n", rxd_base->rxd_1.payload_format));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tBSSID=%d\n", rxd_base->rxd_1.bssid));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tKeyID=%d\n", rxd_base->rxd_1.key_id));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tChFrequency=%x\n", rxd_base->rxd_1.ch_freq));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tHdearLength(MAC)=%d\n", rxd_base->rxd_1.mac_hdr_len));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tHeaerOffset(HO)=%d\n", rxd_base->rxd_1.hdr_offset));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tHeaerTrans(H)=%d\n", rxd_base->rxd_1.hdr_trans));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tPayloadFormat(PF)=%d\n", rxd_base->rxd_1.payload_format));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tBSSID=%d\n", rxd_base->rxd_1.bssid));
 
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tWlanIndex=%d\n", rxd_base->rxd_2.wlan_idx));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tTID=%d\n", rxd_base->rxd_2.tid));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tSEC Mode=%d\n", rxd_base->rxd_2.sec_mode));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tSW BIT=%d\n", rxd_base->rxd_2.sw_bit));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tFCE Error(FC)=%d\n", rxd_base->rxd_2.fcs_err));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tCipher Mismatch(CM)=%d\n", rxd_base->rxd_2.cm));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tCipher Length Mismatch(CLM)=%d\n", rxd_base->rxd_2.clm));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tICV Err(I)=%d\n", rxd_base->rxd_2.icv_err));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tTKIP MIC Err(T)=%d\n", rxd_base->rxd_2.tkip_mic_err));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tLength Mismatch(LM)=%d\n", rxd_base->rxd_2.len_mismatch));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tDeAMSDU Fail(DAF)=%d\n", rxd_base->rxd_2.de_amsdu_err));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tExceedMax Rx Length(EL)=%d\n", rxd_base->rxd_2.exceed_max_rx_len));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tLLC-SNAP mismatch(LLC-MIS, for HdrTrans)=%d\n", rxd_base->rxd_2.llc_mis));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tUndefined VLAN tagged Type(UDF_VLT)=%d\n", rxd_base->rxd_2.UDF_VLT));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tFragment Frame(FRAG)=%d\n", rxd_base->rxd_2.frag));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tNull Frame(NULL)=%d\n", rxd_base->rxd_2.null_frm));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tNon Data Frame(NDATA)=%d\n", rxd_base->rxd_2.ndata));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tNon-AMPDU Subframe(NASF)=%d\n", rxd_base->rxd_2.non_ampdu_sub_frm));
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\t\tNon AMPDU(NAMP)=%d\n", rxd_base->rxd_2.non_ampdu));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tWlanIndex=%d\n", rxd_base->rxd_2.wlan_idx));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tTID=%d\n", rxd_base->rxd_2.tid));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tSEC Mode=%d\n", rxd_base->rxd_2.sec_mode));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tSW BIT=%d\n", rxd_base->rxd_2.sw_bit));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tFCE Error(FC)=%d\n", rxd_base->rxd_2.fcs_err));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tCipher Mismatch(CM)=%d\n", rxd_base->rxd_2.cm));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tCipher Length Mismatch(CLM)=%d\n", rxd_base->rxd_2.clm));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tICV Err(I)=%d\n", rxd_base->rxd_2.icv_err));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tTKIP MIC Err(T)=%d\n", rxd_base->rxd_2.tkip_mic_err));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tLength Mismatch(LM)=%d\n", rxd_base->rxd_2.len_mismatch));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tDeAMSDU Fail(DAF)=%d\n", rxd_base->rxd_2.de_amsdu_err));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tExceedMax Rx Length(EL)=%d\n", rxd_base->rxd_2.exceed_max_rx_len));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tLLC-SNAP mismatch(LLC-MIS, for HdrTrans)=%d\n", rxd_base->rxd_2.llc_mis));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tUndefined VLAN tagged Type(UDF_VLT)=%d\n", rxd_base->rxd_2.UDF_VLT));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tFragment Frame(FRAG)=%d\n", rxd_base->rxd_2.frag));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tNull Frame(NULL)=%d\n", rxd_base->rxd_2.null_frm));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tNon Data Frame(NDATA)=%d\n", rxd_base->rxd_2.ndata));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tNon-AMPDU Subframe(NASF)=%d\n", rxd_base->rxd_2.non_ampdu_sub_frm));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\t\tNon AMPDU(NAMP)=%d\n", rxd_base->rxd_2.non_ampdu));
 
 	if (rxd_base->rxd_0.grp_vld)
 	{
@@ -806,8 +806,13 @@ VOID write_tmac_info(
 #endif /* RT_CFG80211_P2P_SUPPORT */
 	}
 
-	if (mac_entry && IS_ENTRY_APCLI(mac_entry))
+	if (mac_entry && IS_ENTRY_APCLI(mac_entry)){
+#ifdef MULTI_APCLI_SUPPORT
+		txd_1->own_mac = (0x1 + mac_entry->func_tb_idx);
+#else /* MULTI_APCLI_SUPPORT */
 		txd_1->own_mac = 0x1; //Carter, refine this
+#endif /* !MULTI_APCLI_SUPPORT */
+		}
 	else if (mac_entry && IS_ENTRY_CLIENT(mac_entry)) {
 		if (mac_entry->func_tb_idx == 0)
 			txd_1->own_mac = 0x0;
@@ -932,11 +937,11 @@ VOID write_tmac_info(
 	// TODO: shiang-7603, any mapping to following parameters?
 
 	NdisMoveMemory(tmac_info, &txd, sizeof(TMAC_TXD_L));
-
+#ifdef DBG
 	if ((RTDebugFunc & DBG_FUNC_TMAC_INFO) == DBG_FUNC_TMAC_INFO) {
 		dump_tmac_info(pAd, tmac_info);
 	}
-
+#endif
 #ifdef CONFIG_TRACE_SUPPORT
 	if (txd_1->ft == TMI_FT_SHORT)
 		TRACE_TX_MAC_SINFO((TMAC_TXD_S *)&txd);
@@ -962,6 +967,14 @@ VOID write_tmac_info_Data(RTMP_ADAPTER *pAd, UCHAR *buf, TX_BLK *pTxBlk)
 	union WTBL_1_DW0 *dw0 = (union WTBL_1_DW0 *)&tb_entry.wtbl_1.wtbl_1_d0.word;
 	TXS_CTL *TxSCtl = &pAd->TxSCtl;
 
+#ifdef CONFIG_STA_SUPPORT
+#ifdef QOS_DLS_SUPPORT
+	if (pMacEntry && IS_ENTRY_DLS(pMacEntry) &&
+		(pAd->StaCfg.BssType == BSS_INFRA))
+		wcid = BSSID_WCID;
+	else
+#endif /* QOS_DLS_SUPPORT */
+#endif /* CONFIG_STA_SUPPORT */
 		wcid = pTxBlk->Wcid;
 
 	if (pMacEntry == NULL)
@@ -1170,13 +1183,6 @@ VOID write_tmac_info_Data(RTMP_ADAPTER *pAd, UCHAR *buf, TX_BLK *pTxBlk)
 			if (mcs < MAX_MCS_SET)
 				pAd->DiagStruct.diag_info[pAd->DiagStruct.ArrayCurIdx].TxMcsCnt_HT[mcs]++;
 		}
-#ifdef DOT11_VHT_AC
-		else if (pTransmit->field.MODE == MODE_VHT) {
-			INT mcs_idx = ((mcs >> 4) * 10) +  (mcs & 0xf);
-			if (mcs_idx < MAX_VHT_MCS_SET)
-				pAd->DiagStruct.diag_info[pAd->DiagStruct.ArrayCurIdx].TxMcsCnt_VHT[mcs_idx]++;
-		}
-#endif /* DOT11_VHT_AC */
 #endif /* DBG_TX_MCS */
 	}
 #endif /* DBG_DIAGNOSE */
@@ -1433,19 +1439,20 @@ VOID mt_asic_init_txrx_ring(RTMP_ADAPTER *pAd)
 	for (i = 0; i < NUM_OF_RX_RING; i++)
 	{
 		RTMP_RX_RING *rx_ring;
+		UINT16 RxRingSize = (i == 0) ? RX_RING_SIZE : RX1_RING_SIZE;
 
 		rx_ring = &pAd->RxRing[i];
 		offset = i * 0x10;
 		phy_addr = RTMP_GetPhysicalAddressLow(rx_ring->Cell[0].AllocPa);
 		rx_ring->RxSwReadIdx = 0;
-		rx_ring->RxCpuIdx = RX_RING_SIZE - 1;
+		rx_ring->RxCpuIdx = RxRingSize - 1;
 		rx_ring->hw_desc_base = MT_RX_RING_BASE + offset;
 		rx_ring->hw_cidx_addr = MT_RX_RING_CIDX + offset;
 		rx_ring->hw_didx_addr = MT_RX_RING_DIDX + offset;
 		rx_ring->hw_cnt_addr = MT_RX_RING_CNT + offset;
 		HIF_IO_WRITE32(pAd, rx_ring->hw_desc_base, phy_addr);
 		HIF_IO_WRITE32(pAd, rx_ring->hw_cidx_addr, rx_ring->RxCpuIdx);
-		HIF_IO_WRITE32(pAd, rx_ring->hw_cnt_addr, RX_RING_SIZE);
+		HIF_IO_WRITE32(pAd, rx_ring->hw_cnt_addr, RxRingSize);
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("-->RX_RING%d[0x%x]: Base=0x%x, Cnt=%d\n",
 					i, rx_ring->hw_desc_base, phy_addr, RX_RING_SIZE));
 	}

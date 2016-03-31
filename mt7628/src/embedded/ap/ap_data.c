@@ -190,6 +190,31 @@ INT APSendPacket(RTMP_ADAPTER *pAd, PNDIS_PACKET pPacket)
 	/*add hook point when enqueue*/
 	RTMP_OS_TXRXHOOK_CALL(WLAN_TX_ENQUEUE,pPacket,QueIdx,pAd);
 
+#ifdef CONFIG_HOTSPOT
+	/* 
+		Re-check the wcid, it maybe broadcast to unicast by RTMPCheckEtherType.
+	*/
+	if (wcid != RTMP_GET_PACKET_WCID(pPacket))
+	{
+		wcid = RTMP_GET_PACKET_WCID(pPacket);
+		//pMacEntry = &pAd->MacTab.Content[wcid];
+		tr_entry = &pAd->MacTab.tr_entry[wcid];
+		wdev = tr_entry->wdev;
+	}
+
+	/* Drop broadcast/multicast packet if disable dgaf */
+	// TODO: shiang-usw, fix me because MCAST_WCID is not used now!
+	if (IS_ENTRY_CLIENT(tr_entry)) {
+		BSS_STRUCT *pMbss = (BSS_STRUCT *)wdev->func_dev;
+
+		if ((wcid == pMbss->wdev.tr_tb_idx/*MCAST_WCID*/) && 
+			(pMbss->HotSpotCtrl.HotSpotEnable || pMbss->HotSpotCtrl.bASANEnable) &&
+			pMbss->HotSpotCtrl.DGAFDisable) {
+			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_INFO, ("Drop broadcast/multicast packet when dgaf disable\n"));
+			goto drop_pkt;
+		}
+	}
+#endif
 
 	/* AP does not send packets before port secured */
 	if (tr_entry->PortSecured == WPA_802_1X_PORT_NOT_SECURED)
@@ -457,13 +482,16 @@ static inline VOID APFindCipherAlgorithm(RTMP_ADAPTER *pAd, TX_BLK *pTxBlk)
 	UCHAR RAWcid = pTxBlk->Wcid;
 	MAC_TABLE_ENTRY *pMacEntry = pTxBlk->pMacEntry;
 	struct wifi_dev *wdev;
+#ifdef WPA_SUPPLICANT_SUPPORT
+	STA_TR_ENTRY *tr_entry = pTxBlk->tr_entry;
+#endif /* WPA_SUPPLICANT_SUPPORT */
 #ifdef WAPI_SUPPORT
 	BSS_STRUCT *pMbss = NULL;
 #endif /* WAPI_SUPPORT */
 
 	ASSERT(pTxBlk->wdev_idx < WDEV_NUM_MAX);
 	wdev = pAd->wdev_list[pTxBlk->wdev_idx];
-	ASSERT(wdev->func_idx < pAd->ApCfg.BssidNum);
+//	ASSERT(wdev->func_idx < pAd->ApCfg.BssidNum);
 
 
 	// TODO: shiang-usw, we should use this check to replace rest of the codes!
@@ -494,6 +522,15 @@ static inline VOID APFindCipherAlgorithm(RTMP_ADAPTER *pAd, TX_BLK *pTxBlk)
 				pKey = NULL;
 			}
 		}
+#ifdef WPA_SUPPLICANT_SUPPORT
+		else if (pApCliEntry->wpa_supplicant_info.WpaSupplicantUP && 
+			(pMacEntry->WepStatus  == Ndis802_11WEPEnabled) &&
+			(pApCliEntry->wdev.IEEE8021X == TRUE) &&
+			(tr_entry->PortSecured == WPA_802_1X_PORT_NOT_SECURED))
+		{
+			CipherAlg = CIPHER_NONE;
+		}
+#endif /* WPA_SUPPLICANT_SUPPORT */
 		else if (pMacEntry->WepStatus == Ndis802_11WEPEnabled)
 		{
 			CipherAlg  = pApCliEntry->SharedKey[wdev->DefaultKeyId].CipherAlg;
@@ -1625,19 +1662,6 @@ REPEATER_CLIENT_ENTRY *pReptEntry = NULL;
 			pHeaderBufPtr = AP_Build_AMSDU_Frame_Header(pAd, pTxBlk);
 
 			/* NOTE: TxWI->TxWIMPDUByteCnt will be updated after final frame was handled. */
-#ifdef WFA_VHT_PF
-			if (pAd->force_amsdu)
-			{
-				UCHAR RABAOriIdx;
-
-				if (pMacEntry) {
-					 RABAOriIdx = pMacEntry->BAOriWcidArray[pTxBlk->UserPriority];
-					if (((pMacEntry->TXBAbitmap & (1<<pTxBlk->UserPriority)) != 0) &&
-						(pAd->BATable.BAOriEntry[RABAOriIdx].amsdu_cap == TRUE))
-						TX_BLK_SET_FLAG (pTxBlk, fTX_AmsduInAmpdu);
-				}
-			}
-#endif /* WFA_VHT_PF */
 
 			write_tmac_info_Data(pAd, &pTxBlk->HeaderBuf[0], pTxBlk);
 
@@ -1892,10 +1916,6 @@ MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("<--%s(%d): ##########Fail
 	if (TX_BLK_TEST_FLAG(pTxBlk, fTX_bWMM)) {
 		/* build QOS Control bytes */
 		*pHeaderBufPtr = ((pTxBlk->UserPriority & 0x0F) | (pAd->CommonCfg.AckPolicy[pTxBlk->QueIdx] << 5));
-#ifdef WFA_VHT_PF
-		if (pAd->force_noack) 
-			*pHeaderBufPtr |= (1 << 5);
-#endif /* WFA_VHT_PF */
 
 #ifdef UAPSD_SUPPORT
 		if (CLIENT_STATUS_TEST_FLAG(pTxBlk->pMacEntry, fCLIENT_STATUS_APSD_CAPABLE)
@@ -2880,75 +2900,6 @@ VOID AP_ARalink_Frame_Tx(RTMP_ADAPTER *pAd, TX_BLK *pTxBlk)
 }
 
 
-#ifdef VHT_TXBF_SUPPORT
-VOID AP_NDPA_Frame_Tx(RTMP_ADAPTER *pAd, TX_BLK *pTxBlk)
-{
-	UCHAR *buf;
-	VHT_NDPA_FRAME *vht_ndpa;
-	struct wifi_dev *wdev;
-	UINT frm_len, sta_cnt;
-	SNDING_STA_INFO *sta_info;
-	MAC_TABLE_ENTRY *pMacEntry;
-	
-	pTxBlk->Wcid = RTMP_GET_PACKET_WCID(pTxBlk->pPacket);
-	pTxBlk->pMacEntry = &pAd->MacTab.Content[pTxBlk->Wcid];
-	pMacEntry = pTxBlk->pMacEntry;
-
-	if (pMacEntry) 
-	{
-		wdev = pMacEntry->wdev;
-
-		if (MlmeAllocateMemory(pAd, &buf) != NDIS_STATUS_SUCCESS)
-			return;
-
-		NdisZeroMemory(buf, MGMT_DMA_BUFFER_SIZE);
-
-		vht_ndpa = (VHT_NDPA_FRAME *)buf;
-		frm_len = sizeof(VHT_NDPA_FRAME);
-		vht_ndpa->fc.Type = FC_TYPE_CNTL;
-		vht_ndpa->fc.SubType = SUBTYPE_VHT_NDPA;
-		COPY_MAC_ADDR(vht_ndpa->ra, pMacEntry->Addr);
-		COPY_MAC_ADDR(vht_ndpa->ta, wdev->if_addr);
-
-		/* Currnetly we only support 1 STA for a VHT DNPA */
-		sta_info = vht_ndpa->sta_info;
-		for (sta_cnt = 0; sta_cnt < 1; sta_cnt++) {
-			sta_info->aid12 = pMacEntry->Aid;
-			sta_info->fb_type = SNDING_FB_SU;
-			sta_info->nc_idx = 0;
-			vht_ndpa->token.token_num = pMacEntry->snd_dialog_token;
-			frm_len += sizeof(SNDING_STA_INFO);
-			sta_info++;
-			if (frm_len >= (MGMT_DMA_BUFFER_SIZE - sizeof(SNDING_STA_INFO))) {
-				MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR, ("%s(): len(%d) too large!cnt=%d\n",
-							__FUNCTION__, frm_len, sta_cnt));
-				break;
-			}
-		}
-		if (pMacEntry->snd_dialog_token & 0xc0)
-			pMacEntry->snd_dialog_token = 0;
-		else
-			pMacEntry->snd_dialog_token++;
-
-		vht_ndpa->duration = 100;
-
-		//MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("Send VHT NDPA Frame to STA(%02x:%02x:%02x:%02x:%02x:%02x)\n",
-		//						PRINT_MAC(pMacEntry->Addr)));
-		//hex_dump("VHT NDPA Frame", buf, frm_len);
-
-		// NDPA's BW needs to sync with Tx BW
-		pAd->CommonCfg.MlmeTransmit.field.BW = pMacEntry->HTPhyMode.field.BW;
-
-		pTxBlk->Flags = FALSE; // No Acq Request
-		
-		// TODO: shiang-lock, fix ME!!
-		MiniportMMRequest(pAd, 0, buf, frm_len);
-		MlmeFreeMemory(pAd, buf);
-	}
-
-	pMacEntry->TxSndgType = SNDG_TYPE_DISABLE;
-}
-#endif /* VHT_TXBF_SUPPORT */
 
 
 /*
@@ -3016,28 +2967,6 @@ NDIS_STATUS APHardTransmit(RTMP_ADAPTER *pAd, TX_BLK *pTxBlk)
 	}
 #endif /* HDR_TRANS_TX_SUPPORT */
 
-#ifdef VHT_TXBF_SUPPORT			
-	if ((pTxBlk->TxFrameType & TX_NDPA_FRAME) > 0)
-	{
-		UCHAR mlmeMCS, mlmeBW, mlmeMode;
-
-		mlmeMCS  = pAd->CommonCfg.MlmeTransmit.field.MCS;
-		mlmeBW   = pAd->CommonCfg.MlmeTransmit.field.BW;
-		mlmeMode = pAd->CommonCfg.MlmeTransmit.field.MODE;
-		
-		pAd->NDPA_Request = TRUE;
-	
-		AP_NDPA_Frame_Tx(pAd, pTxBlk);
-		
-		pAd->NDPA_Request = FALSE;
-		pTxBlk->TxFrameType &= ~TX_NDPA_FRAME;
-
-		// Finish NDPA and then recover to mlme's own setting
-		pAd->CommonCfg.MlmeTransmit.field.MCS  = mlmeMCS;
-		pAd->CommonCfg.MlmeTransmit.field.BW   = mlmeBW;
-		pAd->CommonCfg.MlmeTransmit.field.MODE = mlmeMode;
-	}
-#endif	
 
 	switch (pTxBlk->TxFrameType)
 	{
@@ -3248,7 +3177,7 @@ VOID APRxErrorHandle(RTMP_ADAPTER *pAd, RX_BLK *pRxBlk)
 	UINT32 MaxWcidNum = MAX_LEN_OF_MAC_TABLE;
 
 #ifdef APCLI_SUPPORT
-	MaxWcidNum = APCLI_MCAST_WCID + 1;
+	//MaxWcidNum = APCLI_MCAST_WCID + 1;
 #endif
 	if (pRxInfo->CipherErr)
 		INC_COUNTER64(pAd->WlanCounters.WEPUndecryptableCount);
@@ -3258,7 +3187,6 @@ VOID APRxErrorHandle(RTMP_ADAPTER *pAd, RX_BLK *pRxBlk)
 		if (pRxBlk->wcid < MaxWcidNum)
 		{
 #ifdef APCLI_SUPPORT
-			PCIPHER_KEY pWpaKey;
 			UCHAR Wcid;
 			PHEADER_802_11 pHeader = pRxBlk->pHeader;
 
@@ -3272,15 +3200,28 @@ VOID APRxErrorHandle(RTMP_ADAPTER *pAd, RX_BLK *pRxBlk)
 			{
 				if (pRxInfo->CipherErr == 2)
 				{	
-					pWpaKey = &pEntry->PairwiseKey;
+#ifdef WPA_SUPPLICANT_SUPPORT
+					if (pAd->ApCfg.ApCliTab[pEntry->func_tb_idx].wpa_supplicant_info.WpaSupplicantUP)
+					{
+						WpaSendMicFailureToWpaSupplicant(pAd->net_dev, pHeader->Addr2,
+											 (pWpaKey->Type == PAIRWISEKEY) ? TRUE : FALSE,
+											 (INT)pRxBlk->key_idx, NULL);
+					}
+					if (((pRxInfo->CipherErr & 2) == 2) && INFRA_ON(pAd))
+						RTMPSendWirelessEvent(pAd, IW_MIC_ERROR_EVENT_FLAG, pEntry->Addr, pEntry->wdev->wdev_idx, 0);
+#else
 #ifdef APCLI_CERT_SUPPORT
+					{
+					PCIPHER_KEY pWpaKey = &pEntry->PairwiseKey;
 					ApCliRTMPReportMicError(pAd, pWpaKey, pEntry->func_tb_idx);
+					}
 #endif /* APCLI_CERT_SUPPORT */
 
 					DBGPRINT_RAW(DBG_CAT_ALL, DBG_LVL_ERROR,("Rx MIC Value error\n"));
 				}
 			}
 			else
+#endif /* WPA_SUPPLICANT_SUPPORT */ 
 #endif /* APCLI_SUPPORT */
 			if (pRxInfo->U2M) {
 				pEntry = &pAd->MacTab.Content[pRxBlk->wcid];

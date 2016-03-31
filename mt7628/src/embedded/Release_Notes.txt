@@ -1,3 +1,58 @@
+[ V4.0.1.3 ]
+	1. Fixed issues:
+		(1) Apcli/Repeater mode, Rx is sometimes disabled after connected to a root AP.
+		(2) ICV error cause disconnection with some AP at apclient/repeater mode.
+		(3) Correct CR setting for Carrier Detection (Japan).
+		(4) Fix an length error in the HT Extended Capability imformation element, which may cause some STAs fail to validate the beacons.
+	2. Sniffer mode support (under AP mode).
+	3. Band Steering support.
+	4. Firmware update:
+		(1) Update BBP init and eLNA auto-cal.
+		(2) Add eLNA UL gain minimum protect.
+		(3) Update DPD enable/disable setting and value protection.
+		(4) PM4 setting update.
+
+[ V4.0.1.2 ]
+	<V4.0.1.2-Revision 1>
+	1. Fixed issues:
+		(1) Kernel panic in ParseTxSPacket() when running repeater mode
+	2. Support mini STA mode:
+		Security: OPEN-NONE/OPEN-WEP/SHARED-WEP/WPAPSK-TKIPAES/WPA2PSK-TKIPAES
+		Throughput: 20Mbps ~ 40 Mbps
+		Number of AP scan: 8
+		Note: ra0 should be removed from br0 when running STA mode(brctl delif br0 ra0)
+
+[ V4.0.1.2 ]
+	1. Fixed issues: 
+		(1)Driver function abnormal while doing site survey and play VLC at the same time.
+		(2)A disconnection of repeater client causes the disconnection of apcli.
+		(3)Memory leakage in sending mcu command.
+		(4)WPS PBC of apcli fails at the first time.
+		(5)Connection issue of AIR play function
+	3. Firmware update:
+		(1) fix iPA_eLNA DPD
+		(2) Add PTA setting for DPD
+		(3) TOAE calibration: 
+			Update TOAE for TOAE_CTRL and NORMAL_TRX
+			Re-calibrate TOAE while TOAE report(0x60200F0C[30:17]) <= 0x0
+		(4) LED
+			Add LED TX blink mode select.
+			Allow input polarity paramter in LED command.
+		(5) fix Aux LPF gain index calculation in eLNA auto-calibration
+	4. Support Passpoint Release 2
+
+[ V4.0.1.1 ]
+	1. Fix firmware load failed issue when interface down/up
+	2. Reduce test time on ATE.
+	3. Correct rate tuning issue.
+	4. Turn off EDCCA by default. Turn it on when country region is CE.
+	5. Firmware: fix SIFS timing
+	6. Fix issue: MAC1200 BCM 3x3 11ac PCIE Card connect to MT7628 fail.
+	7. Fix issue: Class2 Error Handler didn't work
+	8. Fix TXCoherent happened due to sw cpu index incorrect (tx done tasklet de-q and scan resume de-q race condition)
+	9. Fix issue: skb_under_panic in kernel 3.10
+	10.Support MT7688
+
 [ V4.0.1.1 ]
 	Beta release
 	1. Fix RTS/CTS protection setting for 802.11n qualification test.

@@ -328,7 +328,7 @@ static inline INT32 mt_rx_info_2_blk(
     struct rxd_base_struc *rx_base;
     //RXD_GRP4_STRUCT *RxdGrp4 = NULL;
     //RXD_GRP1_STRUCT *RxdGrp1 = NULL;
-    //RXD_GRP2_STRUCT *RxdGrp2 = NULL;
+    RXD_GRP2_STRUCT *RxdGrp2 = NULL;
 	RXD_GRP3_STRUCT *RxdGrp3 = NULL;
 
     pRxBlk->pRxInfo = (RXINFO_STRUC *)(&pRxBlk->hw_rx_info[RXINFO_OFFSET]);
@@ -353,7 +353,7 @@ static inline INT32 mt_rx_info_2_blk(
 
 	if (rx_base->rxd_0.grp_vld & RXS_GROUP2)
 	{
-		//RxdGrp2 = (RXD_GRP2_STRUCT *)Pos;
+		RxdGrp2 = (RXD_GRP2_STRUCT *)Pos;
 		Pos += RMAC_INFO_GRP_2_SIZE;
 	}
 
@@ -385,7 +385,8 @@ static inline INT32 mt_rx_info_2_blk(
     pRxBlk->wcid = rx_base->rxd_2.wlan_idx;
     pRxBlk->bss_idx = rx_base->rxd_1.bssid;
     pRxBlk->key_idx = rx_base->rxd_1.key_id;
-    pRxBlk->TID = rx_base->rxd_2.tid;
+    pRxBlk->TID = rx_base->rxd_2.tid;    
+	pRxBlk->TimeStamp = (RxdGrp2!=NULL)?RxdGrp2->timestamp:0;
 
     pRxBlk->pRxInfo->U2M = rx_base->rxd_1.u2m;
     pRxBlk->pRxInfo->Mcast = rx_base->rxd_1.mcast;
@@ -901,6 +902,8 @@ NDIS_STATUS MiniportMMRequest(RTMP_ADAPTER *pAd, UCHAR QueIdx, UCHAR *pData, UIN
 			break;
 		}
 
+#ifdef CONFIG_STA_SUPPORT
+#endif /* CONFIG_STA_SUPPORT */
 
 		/* Check Free priority queue*/
 		/* Since we use PBF Queue2 for management frame.  Its corresponding DMA ring should be using TxRing.*/
@@ -936,6 +939,9 @@ NDIS_STATUS MiniportMMRequest(RTMP_ADAPTER *pAd, UCHAR QueIdx, UCHAR *pData, UIN
 			}
 
 #ifdef DOT11W_PMF_SUPPORT
+#ifdef CONFIG_STA_SUPPORT
+			if (INFRA_ON(pAd))
+#endif /* CONFIG_STA_SUPPORT */
 				if (pAd->chipCap.hif_type != HIF_MT)
 				PMF_PerformTxFrameAction(pAd, pPacket);
 #endif /* DOT11W_PMF_SUPPORT */
@@ -1283,6 +1289,16 @@ NDIS_STATUS MlmeHardTransmit(
 		}
 
 
+#ifdef CONFIG_HOTSPOT_R2
+		if (((pHeader_802_11->FC.Type == FC_TYPE_MGMT) &&
+            (pHeader_802_11->FC.SubType == SUBTYPE_DISASSOC)) || 
+			((pHeader_802_11->FC.Type == FC_TYPE_MGMT) &&
+            (pHeader_802_11->FC.SubType == SUBTYPE_DEAUTH)))
+        {
+			RTMP_SET_PACKET_DISASSOC(pPacket, 1);
+			pEntry->IsKeep = 1;
+		}
+#endif /* CONFIG_HOTSPOT_R2 */
 
 		AP_QueuePsActionPacket(pAd, pEntry, pPacket, FlgIsDeltsFrame,
 								FlgIsLocked, MgmtQid);
@@ -1336,6 +1352,16 @@ NDIS_STATUS MlmeHardTransmitMgmtRing(RTMP_ADAPTER *pAd, UCHAR QueIdx, PNDIS_PACK
 		return NDIS_STATUS_FAILURE;
 	}
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		/* outgoing frame always wakeup PHY to prevent frame lost */
+		if (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_DOZE))
+		{
+			AsicForceWakeup(pAd, TRUE);
+		}
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 #if defined(MT7603) || defined(MT7628) || defined(MT7636)
 	// TODO: shiang-7603
@@ -1398,6 +1424,30 @@ NDIS_STATUS MlmeHardTransmitMgmtRing(RTMP_ADAPTER *pAd, UCHAR QueIdx, PNDIS_PACK
 	}
 #endif
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		/* Fixed W52 with Activity scan issue in ABG_MIXED and ABGN_MIXED mode.*/
+		// TODO: shiang-6590, why we need this condition check here?
+		if (WMODE_EQUAL(pAd->CommonCfg.PhyMode, WMODE_A | WMODE_B | WMODE_G)
+#ifdef DOT11_N_SUPPORT
+			|| WMODE_EQUAL(pAd->CommonCfg.PhyMode, WMODE_A | WMODE_B | WMODE_G | WMODE_AN | WMODE_GN)
+#endif /* DOT11_N_SUPPORT */
+		)
+		{
+			if (pAd->LatchRfRegs.Channel > 14)
+			{
+				pAd->CommonCfg.MlmeTransmit.field.MODE = MODE_OFDM;
+				pAd->CommonCfg.MlmeTransmit.field.MCS = MCS_RATE_6;
+			}
+			else
+			{
+				pAd->CommonCfg.MlmeTransmit.field.MODE = MODE_CCK;
+				pAd->CommonCfg.MlmeTransmit.field.MCS = MCS_0;
+			}
+		}
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 
 	/*
@@ -1406,8 +1456,54 @@ NDIS_STATUS MlmeHardTransmitMgmtRing(RTMP_ADAPTER *pAd, UCHAR QueIdx, PNDIS_PACK
 		By the way this will cause frame to be send on PWR_SAVE failed.
 	*/
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS))
+		{
+			/* We are in scan progress, just let the PwrMgmt bit keep as it orginally should be.*/
+		}
+		else
+#endif /* CONFIG_STA_SUPPORT */
 			pHeader_802_11->FC.PwrMgmt = PWR_ACTIVE;
+#ifdef CONFIG_STA_SUPPORT
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+	/*
+		In WMM-UAPSD, mlme frame should be set psm as power saving but probe
+		request frame, Data-Null packets alse pass through MMRequest in RT2860,
+		however, we hope control the psm bit to pass APSD
+	*/
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		if ((pHeader_802_11->FC.SubType == SUBTYPE_ACTION) ||
+			((pHeader_802_11->FC.Type == FC_TYPE_DATA) &&
+			((pHeader_802_11->FC.SubType == SUBTYPE_QOS_NULL) ||
+			(pHeader_802_11->FC.SubType == SUBTYPE_DATA_NULL))))
+		{
+			if (RtmpPktPmBitCheck(pAd) == TRUE)
+				pHeader_802_11->FC.PwrMgmt = PWR_SAVE;
+			else if (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_MEDIA_STATE_CONNECTED) &&
+					INFRA_ON(pAd) &&
+					RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS))
+			{
+				/* We are in scan progress, just let the PwrMgmt bit keep as it orginally should be */
+			}
+			else
+			{
+				pHeader_802_11->FC.PwrMgmt = pAd->CommonCfg.bAPSDForcePowerSave;
+			}
+#ifdef MT_MAC
+			if (pAd->chipCap.hif_type == HIF_MT)
+			{
+				mac_info.PsmBySw = 1;
+			}
+#endif /* MT_MAC */
+		}
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 
 #ifdef CONFIG_AP_SUPPORT
@@ -1418,6 +1514,13 @@ NDIS_STATUS MlmeHardTransmitMgmtRing(RTMP_ADAPTER *pAd, UCHAR QueIdx, PNDIS_PACK
 	bInsertTimestamp = FALSE;
 	if (pHeader_802_11->FC.Type == FC_TYPE_CNTL) /* must be PS-POLL*/
 	{
+#ifdef CONFIG_STA_SUPPORT
+		/*Set PM bit in ps-poll, to fix WLK 1.2  PowerSaveMode_ext failure issue.*/
+		if ((pAd->OpMode == OPMODE_STA) && (pHeader_802_11->FC.SubType == SUBTYPE_PS_POLL))
+		{
+			pHeader_802_11->FC.PwrMgmt = PWR_SAVE;
+		}
+#endif /* CONFIG_STA_SUPPORT */
 		bAckRequired = FALSE;
 
         if (pHeader_802_11->FC.SubType == SUBTYPE_BLOCK_ACK_REQ)
@@ -1426,15 +1529,6 @@ NDIS_STATUS MlmeHardTransmitMgmtRing(RTMP_ADAPTER *pAd, UCHAR QueIdx, PNDIS_PACK
             bAckRequired = TRUE;
         }
 
-#ifdef VHT_TXBF_SUPPORT
-		if (pHeader_802_11->FC.SubType == SUBTYPE_VHT_NDPA)
-		{
-			pHeader_802_11->Duration = 100;
-			//MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s(): VHT_NDPA frame, rate=%d, len=%d, duration=%d\n",
-			//			__FUNCTION__, MlmeRate, SrcBufLen, pHeader_802_11->Duration));
-			//hex_dump("VHT_NDPA after update Duration", (UCHAR *)pHeader_802_11, SrcBufLen);
-		}
-#endif /* VHT_TXBF_SUPPORT */
 	}
 	else /* FC_TYPE_MGMT or FC_TYPE_DATA(must be NULL frame)*/
 	{
@@ -1539,13 +1633,6 @@ NDIS_STATUS MlmeHardTransmitMgmtRing(RTMP_ADAPTER *pAd, UCHAR QueIdx, PNDIS_PACK
 		}
 		tx_rate = (UCHAR)pAd->CommonCfg.MlmeTransmit.field.MCS;
 		transmit = &pAd->CommonCfg.MlmeTransmit;
-#ifdef VHT_TXBF_SUPPORT
-		if (pAd->NDPA_Request)
-		{
-			transmit->field.MODE = MODE_VHT;
-			transmit->field.MCS = MCS_RATE_6;
-		}
-#endif
 	}
 	else
 	{
@@ -1780,6 +1867,20 @@ if ((pHeader_802_11->FC.Type == FC_TYPE_CNTL) && (pHeader_802_11->FC.SubType == 
 
 	HAL_KickOutMgmtTx(pAd, mac_info.q_idx, pPacket, pSrcBufVA, SrcBufLen);
 
+#ifdef CONFIG_HOTSPOT_R2
+	if (RTMP_GET_PACKET_DISASSOC(pPacket))
+	{
+		if (((pHeader_802_11->FC.Type == FC_TYPE_MGMT) &&
+	        (pHeader_802_11->FC.SubType == SUBTYPE_DISASSOC)) ||
+			((pHeader_802_11->FC.Type == FC_TYPE_MGMT) &&
+            (pHeader_802_11->FC.SubType == SUBTYPE_DEAUTH)))
+	    {
+    	    pMacEntry = MacTableLookup(pAd, pHeader_802_11->Addr1);
+    	}
+		if ((pMacEntry) && (pMacEntry->IsKeep == 1))
+			MacTableDeleteEntry(pAd, pMacEntry->Aid, pMacEntry->Addr);	
+	}
+#endif /* CONFIG_HOTSPOT_R2 */
 
 	/* Make sure to release MGMT ring resource*/
 /*	if (!IrqState)*/
@@ -1879,15 +1980,6 @@ static UCHAR TxPktClassification(RTMP_ADAPTER *pAd, PNDIS_PACKET  pPacket, TX_BL
 	else if (IS_HT_RATE(pMacEntry))
 	{
 
-#ifdef VHT_TXBF_SUPPORT
-		// TODO: shiang-usw, we should use cb here instead of mark the data type!
-		if (pMacEntry->TxSndgType == SNDG_TYPE_NDP && IS_VHT_RATE(pMacEntry))
-		{
-#error
-			TxFrameType = TX_NDPA_FRAME;
-			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s():Err!! fix me for this!!\n", __FUNCTION__));
-		}
-#endif
 
 		if (RTMP_GET_PACKET_MOREDATA(pPacket) || (pMacEntry->PsMode == PWR_SAVE))
 			TxFrameType = TX_LEGACY_FRAME;
@@ -1897,11 +1989,6 @@ static UCHAR TxPktClassification(RTMP_ADAPTER *pAd, PNDIS_PACKET  pPacket, TX_BL
 			TxFrameType = TX_LEGACY_FRAME;
 		else
 #endif /* UAPSD_SUPPORT */
-#ifdef WFA_VHT_PF
-		if (pAd->force_amsdu == TRUE)
-			return TX_AMSDU_FRAME;
-		else
-#endif /* WFA_VHT_PF */
 		if ((pMacEntry->TXBAbitmap & (1<<(RTMP_GET_PACKET_UP(pPacket)))) != 0)
 			return TX_AMPDU_FRAME;
 		else if(CLIENT_STATUS_TEST_FLAG(pMacEntry, fCLIENT_STATUS_AMSDU_INUSED)
@@ -2023,6 +2110,17 @@ BOOLEAN RTMP_FillTxBlkInfo(RTMP_ADAPTER *pAd, TX_BLK *pTxBlk)
 		else
 			TX_BLK_SET_FLAG(pTxBlk, fTX_bAckRequired);
 		}
+#ifdef CONFIG_STA_SUPPORT
+#ifdef XLINK_SUPPORT
+		if ((pAd->OpMode == OPMODE_STA) &&
+			(ADHOC_ON(pAd)) /*&&
+			(RX_FILTER_TEST_FLAG(pAd, fRX_FILTER_ACCEPT_PROMISCUOUS))*/)
+		{
+			if (pAd->StaCfg.PSPXlink)
+				TX_BLK_CLEAR_FLAG(pTxBlk, fTX_bAckRequired);
+		}
+#endif /* XLINK_SUPPORT */
+#endif /* CONFIG_STA_SUPPORT */
 
 		{
 #ifdef CONFIG_AP_SUPPORT
@@ -2106,6 +2204,27 @@ BOOLEAN RTMP_FillTxBlkInfo(RTMP_ADAPTER *pAd, TX_BLK *pTxBlk)
 			}
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+#if defined(P2P_SUPPORT) || defined(RT_CFG80211_P2P_SUPPORT) || defined(CFG80211_MULTI_STA)
+			if (pTxBlk->OpMode == OPMODE_STA)
+#else
+			IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+#endif /* P2P_SUPPORT || RT_CFG80211_P2P_SUPPORT */
+			{
+#if defined(DOT11Z_TDLS_SUPPORT) || defined(CFG_TDLS_SUPPORT)
+				if(IS_ENTRY_TDLS(pMacEntry))
+				{
+					TX_BLK_SET_FLAG(pTxBlk, fTX_bTdlsEntry);
+				}
+#endif /* DOT11Z_TDLS_SUPPORT */
+
+
+				/* If support WMM, enable it.*/
+				if (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_WMM_INUSED) &&
+					CLIENT_STATUS_TEST_FLAG(pMacEntry, fCLIENT_STATUS_WMM_CAPABLE))
+					TX_BLK_SET_FLAG(pTxBlk, fTX_bWMM);
+			}
+#endif /* CONFIG_STA_SUPPORT */
 		}
 
 		if (pTxBlk->TxFrameType == TX_LEGACY_FRAME)
@@ -2209,6 +2328,11 @@ BOOLEAN CanDoAggregateTransmit(RTMP_ADAPTER *pAd, NDIS_PACKET *pPacket, TX_BLK *
 		return FALSE;
 	}
 
+#ifdef CONFIG_STA_SUPPORT
+	if ((INFRA_ON(pAd)) && (pAd->OpMode == OPMODE_STA)) /* must be unicast to AP*/
+		return TRUE;
+	else
+#endif /* CONFIG_STA_SUPPORT */
 #ifdef CONFIG_AP_SUPPORT
 	/* CFG_TODO */
 	if ((MAC_ADDR_EQUAL(GET_OS_PKT_DATAPTR(pTxBlk->pPacket), GET_OS_PKT_DATAPTR(pPacket))) 
@@ -3057,6 +3181,10 @@ inline VOID _RTMPDeQueuePacket(
 			ASSERT(pTxBlk->wdev);
 			ASSERT(pTxBlk->wdev->wdev_hard_tx);
 
+
+			if (IS_PCI_INF(pAd) || IS_RBUS_INF(pAd))
+				DEQUEUE_LOCK(&pAd->irq_lock, in_hwIRQ, IrqFlags);
+
 			if (pTxBlk->wdev && pTxBlk->wdev->wdev_hard_tx) {
 				pTxBlk->wdev->wdev_hard_tx(pAd, pTxBlk);
 			}
@@ -3070,7 +3198,15 @@ inline VOID _RTMPDeQueuePacket(
 				IF_DEV_CONFIG_OPMODE_ON_AP(pAd)
 					/*Status = */APHardTransmit(pAd, pTxBlk);
 #endif /* CONFIG_AP_SUPPORT */
+#ifdef CONFIG_STA_SUPPORT
+				IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+					/*Status = */STAHardTransmit(pAd, pTxBlk);
+#endif /* CONFIG_STA_SUPPORT */
 			}
+
+
+			if (IS_PCI_INF(pAd) || IS_RBUS_INF(pAd))
+				DEQUEUE_UNLOCK(&pAd->irq_lock, in_hwIRQ, IrqFlags);
 
 			Count += pTxBlk->TotalFrameNum;
 		}
@@ -3237,31 +3373,51 @@ static inline VOID Sniff2BytesFromNdisBuffer(
 #define IP_HDR_LEN		20
 #define ETH_HDR_LEN		14
 
-#if defined(CONFIG_AP_SUPPORT) && defined(CONFIG_HOTSPOT_R2)
 VOID CheckQosMapUP(PMAC_TABLE_ENTRY pEntry, UCHAR DSCP, PUCHAR pUserPriority)
 {				
+#if defined(CONFIG_AP_SUPPORT) && defined(CONFIG_HOTSPOT_R2)
 	UCHAR i = 0, find_up = 0, dscpL = 0, dscpH = 0;
+	BSS_STRUCT *pMbss = NULL;
+	STA_TR_ENTRY *tr_entry = NULL;
+	RTMP_ADAPTER *pAd = NULL;
 
-	for (i=0;i<(pEntry->DscpExceptionCount/2);i++) {
-		if ((pEntry->DscpException[i] & 0xff) == DSCP) {
-			*pUserPriority = (pEntry->DscpException[i]>>8) & 0xff;
-			find_up = 1;
-			break;
-		}
+	if (pEntry == NULL || pEntry->wdev == NULL)
+	{
+		return;
 	}
-				
-	if (!find_up) {
-		for (i=0;i<8;i++) {
-			dscpL = pEntry->DscpRange[i] & 0xff;
-			dscpH = (pEntry->DscpRange[i]>>8) & 0xff;	
-			if ((DSCP <= dscpH) && (DSCP >= dscpL)) {
-				*pUserPriority = i;
+	else
+	{
+		pAd = (RTMP_ADAPTER *)pEntry->pAd;
+		tr_entry = &pAd->MacTab.tr_entry[pEntry->wcid];
+	}
+
+	if (IS_ENTRY_CLIENT(tr_entry))
+		pMbss = (BSS_STRUCT *)pEntry->wdev->func_dev;
+	else
+		return;
+
+	if (pEntry->QosMapSupport && pMbss->HotSpotCtrl.QosMapEnable) {
+		for (i=0;i<(pEntry->DscpExceptionCount/2);i++) {
+			if ((pEntry->DscpException[i] & 0xff) == DSCP) {
+				*pUserPriority = (pEntry->DscpException[i]>>8) & 0xff;
+				find_up = 1;
 				break;
 			}
 		}
+					
+		if (!find_up) {
+			for (i=0;i<8;i++) {
+				dscpL = pEntry->DscpRange[i] & 0xff;
+				dscpH = (pEntry->DscpRange[i]>>8) & 0xff;	
+				if ((DSCP <= dscpH) && (DSCP >= dscpL)) {
+					*pUserPriority = i;
+					break;
+				}
+			}
+		}
 	}
-}
 #endif /* defined(CONFIG_AP_SUPPORT) && defined(CONFIG_HOTSPOT_R2) */
+}
 
 /*
 	Check the Ethernet Frame type, and set RTMP_SET_PACKET_SPECIFIC flags
@@ -3277,14 +3433,7 @@ BOOLEAN RTMPCheckEtherType(
 {
 	UINT16 TypeLen;
 	UCHAR Byte0, Byte1, *pSrcBuf, up = 0;
-#if defined(CONFIG_AP_SUPPORT) && defined(CONFIG_HOTSPOT_R2)
-	BSS_STRUCT *pMbss;
 	MAC_TABLE_ENTRY *pMacEntry = &pAd->MacTab.Content[tr_entry->wcid];
-	if (IS_ENTRY_CLIENT(tr_entry)) {
-		BSS_STRUCT *pMbss = (BSS_STRUCT *) wdev->func_dev;
-	}
-#endif /* CONFIG_AP_SUPPORT && CONFIG_HOTSPOT_R2 */
-
 	pSrcBuf = GET_OS_PKT_DATAPTR(pPacket);
 	ASSERT(pSrcBuf);
 
@@ -3353,11 +3502,7 @@ MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s():failed for VLAN_ID(vla
 		/* only use VLAN tag as UserPriority setting */
 		up = (*pSrcBuf & 0xe0) >> 5;
 
-#if defined(CONFIG_AP_SUPPORT) && defined(CONFIG_HOTSPOT_R2)
-		if (pMacEntry && pMacEntry->QosMapSupport && pMbss->HotSpotCtrl.QosMapEnable) {
-			CheckQosMapUP(pMacEntry, (*pSrcBuf & 0xfc) >> 2, pUserPriority);
-		}
-#endif /* defined(CONFIG_AP_SUPPORT) && defined(CONFIG_HOTSPOT_R2) */
+		CheckQosMapUP(pMacEntry, (*pSrcBuf & 0xfc) >> 2, &up);
 
 		pSrcBuf += LENGTH_802_1Q; /* Skip the VLAN Header.*/
 	}
@@ -3375,11 +3520,8 @@ MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s():failed for VLAN_ID(vla
 			TotalLen - 16bit IP entire packet length(include IP hdr)
 		*/
 		up = (*(pSrcBuf + 1) & 0xe0) >> 5;
-#if defined(CONFIG_AP_SUPPORT) && defined(CONFIG_HOTSPOT_R2)
-		if (pMacEntry && pMacEntry->QosMapSupport && pMbss->HotSpotCtrl.QosMapEnable) {
-			CheckQosMapUP(pMacEntry, (*(pSrcBuf+1) & 0xfc) >> 2, pUserPriority);
-		}
-#endif			
+
+		CheckQosMapUP(pMacEntry, (*(pSrcBuf+1) & 0xfc) >> 2, &up);
 	}
 	else if (TypeLen == ETH_TYPE_IPv6)
 	{
@@ -3393,11 +3535,7 @@ MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s():failed for VLAN_ID(vla
 		*/
 		up = ((*pSrcBuf) & 0x0e) >> 1;
 				
-#if defined(CONFIG_AP_SUPPORT) && defined(CONFIG_HOTSPOT_R2)
-		if (pMacEntry && pMacEntry->QosMapSupport && pMbss->HotSpotCtrl.QosMapEnable) {
-			CheckQosMapUP(pMacEntry, ((*pSrcBuf & 0x0f) << 2)|((*(pSrcBuf+1)) & 0xc0) >> 6, pUserPriority);
-		}
-#endif /* defined(CONFIG_AP_SUPPORT) && defined(CONFIG_HOTSPOT_R2) */
+		CheckQosMapUP(pMacEntry, ((*pSrcBuf & 0x0f) << 2)|((*(pSrcBuf+1)) & 0xc0) >> 6, &up);
 	}
 
 #ifdef RTMP_RBUS_SUPPORT
@@ -3439,7 +3577,24 @@ MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s():failed for VLAN_ID(vla
 #ifdef CONFIG_DOT11V_WNM
 					WNMIPv4ProxyARPCheck(pAd, pPacket, srcPort, dstPort, pSrcBuf);
 #endif
+#ifdef CONFIG_HOTSPOT
+					{
+						UCHAR Wcid = RTMP_GET_PACKET_WCID(pPacket);
+						if (!HSIPv4Check(pAd, (USHORT*)&Wcid, pPacket, pSrcBuf, srcPort, dstPort))
+						return FALSE;
+					}
 #endif
+#endif
+
+#ifdef AIRPLAY_SUPPORT
+					if ((srcPort==5353 && dstPort==5353))
+					{
+						MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s: this is mDns packet from upper layer ..... on V4\n", __FUNCTION__));
+						RTMP_SET_PACKET_EAPOL(pPacket, 1);
+						RTMP_SET_PACKET_TXTYPE(pPacket, TX_LEGACY_FRAME);
+					}		
+#endif /* AIRPLAY_SUPPORT */					
+
 				}
 			}
 			break;
@@ -3461,6 +3616,17 @@ MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s():failed for VLAN_ID(vla
 						return FALSE;
 					}
 				}
+#endif
+#ifdef CONFIG_HOTSPOT
+				if (pMbss->HotSpotCtrl.HotSpotEnable)
+				{
+					if (!pMbss->HotSpotCtrl.DGAFDisable)
+					{
+						if (IsGratuitousARP(pAd, pSrcBuf - 2, pSrcBuf-14, pMbss))
+							return FALSE;
+					}
+				}
+
 #endif
 #endif
 				RTMP_SET_PACKET_DHCP(pPacket, 1);
@@ -3487,6 +3653,16 @@ MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s():failed for VLAN_ID(vla
 					}
 				}
 #endif
+#ifdef CONFIG_HOTSPOT
+				if (pMbss->HotSpotCtrl.HotSpotEnable)
+				{
+					if (!pMbss->HotSpotCtrl.DGAFDisable)
+					{
+						if (IsUnsolicitedNeighborAdver(pAd, pSrcBuf - 2))
+							return FALSE;
+					}
+				}
+#endif
 				/*
 					Check if DHCPv6 Packet, and Convert group-address DHCP
 					packets to individually-addressed 802.11 frames
@@ -3495,6 +3671,28 @@ MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s():failed for VLAN_ID(vla
 				/* return AC_BE if packet is not IPv6 */
 				if ((*pSrcBuf & 0xf0) != 0x60)
 					up = 0;
+
+#ifdef AIRPLAY_SUPPORT					
+
+				/* point to the Next Header */
+				if (*(pSrcBuf + 6) == IP_PROTO_UDP)
+				{
+					UINT16 srcPort = 0, dstPort = 0;
+
+					pSrcBuf += 40; /* IPV6 Header */
+					srcPort = OS_NTOHS(get_unaligned((PUINT16)(pSrcBuf)));
+					dstPort = OS_NTOHS(get_unaligned((PUINT16)(pSrcBuf+2)));
+
+					if ((srcPort==5353 && dstPort==5353))
+					{						
+						MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s: this is mDns packet from upper layer ..... on V6\n", __FUNCTION__));
+						RTMP_SET_PACKET_EAPOL(pPacket, 1);
+						RTMP_SET_PACKET_TXTYPE(pPacket, TX_LEGACY_FRAME);
+					}	
+				}	
+
+#endif /* AIRPLAY_SUPPORT */				
+
 			}
 			break;
 		case ETH_TYPE_EAPOL:

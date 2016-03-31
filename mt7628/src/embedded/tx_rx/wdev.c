@@ -167,6 +167,19 @@ INT wdev_init(RTMP_ADAPTER *pAd, struct wifi_dev *wdev, UINT wdev_type)
 	}
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+	if (wdev_type == WDEV_TYPE_STA) {
+		wdev->wdev_type = WDEV_TYPE_STA;
+		wdev->tx_pkt_allowed = StaAllowToSendPacket; // StaAllowToSendPacket_new;
+		wdev->tx_pkt_handle = STASendPacket_New; // STASendPacket;
+		wdev->wdev_hard_tx = STAHardTransmit;
+		wdev->rx_pkt_foward = sta_rx_fwd_hnd;
+		wdev->rx_pkt_allowed = sta_rx_pkt_allow;
+//#ifdef RTMP_MAC_PCI
+		wdev_bcn_buf_init(pAd, &pAd->StaCfg.bcn_buf);
+//#endif /* RTMP_MAC_PCI */
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 
 	return FALSE;

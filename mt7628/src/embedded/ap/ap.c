@@ -228,6 +228,9 @@ NDIS_STATUS APInitialize(RTMP_ADAPTER *pAd)
 	MulticastFilterTableInit(pAd, &pAd->pMulticastFilterTable);
 #endif /* IGMP_SNOOP_SUPPORT */
 
+#ifdef DOT11V_WNM_SUPPORT
+	initList(&pAd->DMSEntryList);
+#endif /* DOT11V_WNM_SUPPORT */
 
 
 	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("<--- APInitialize\n"));
@@ -245,16 +248,29 @@ VOID APShutdown(RTMP_ADAPTER *pAd)
 {
 	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("---> APShutdown\n"));
 
+#ifdef MT_MAC
+	/* Disable RX */
+	MtAsicSetMacTxRx(pAd, ASIC_MAC_RX, FALSE);
+
+#ifdef RTMP_MAC_PCI
+	APStop(pAd);
+#endif /* RTMP_MAC_PCI */
+	MlmeRadioOff(pAd);
+#else
 		MlmeRadioOff(pAd);
 
 #ifdef RTMP_MAC_PCI
 		APStop(pAd);
 #endif /* RTMP_MAC_PCI */
+#endif /* MT_MAC */
 
 #ifdef IGMP_SNOOP_SUPPORT
 	MultiCastFilterTableReset(&pAd->pMulticastFilterTable);
 #endif /* IGMP_SNOOP_SUPPORT */
 
+#ifdef DOT11V_WNM_SUPPORT
+	DMSTable_Release(pAd);
+#endif /* DOT11V_WNM_SUPPORT */
 
 	NdisFreeSpinLock(&pAd->MacTabLock);
 
@@ -270,6 +286,8 @@ VOID APShutdown(RTMP_ADAPTER *pAd)
 static INT ap_pmf_init(RTMP_ADAPTER *pAd, BSS_STRUCT *pMbss, INT idx)
 {
 	struct wifi_dev *wdev = &pMbss->wdev;
+
+	wdev->channel = pAd->CommonCfg.Channel;
 
 	/*
 	   IEEE 802.11W/P.10 -
@@ -368,6 +386,11 @@ static INT ap_security_init(RTMP_ADAPTER *pAd, struct wifi_dev *wdev, INT idx)
 
 	/* Generate the corresponding RSNIE */
 	RTMPMakeRSNIE(pAd, wdev->AuthMode, wdev->WepStatus, idx);
+
+#ifdef BAND_STEERING
+		if (pAd->ApCfg.BandSteering && idx == BSS0)
+			BndStrg_Init(pAd);
+#endif /* BAND_STEERING */
 
 		return TRUE;
 }
@@ -542,24 +565,11 @@ static INT ap_phy_rrm_init(RTMP_ADAPTER *pAd)
 	N_ChannelCheck(pAd);//correct central channel offset
 
 	AsicBBPAdjust(pAd);
-#ifdef DOT11_VHT_AC
-	if (pAd->CommonCfg.BBPCurrentBW == BW_80)
-		pAd->hw_cfg.cent_ch = pAd->CommonCfg.vht_cent_ch;
-	else
-#endif /* DOT11_VHT_AC */
 		pAd->hw_cfg.cent_ch = pAd->CommonCfg.CentralChannel;
 
 	AsicSwitchChannel(pAd, pAd->hw_cfg.cent_ch, FALSE);
 	AsicLockChannel(pAd, pAd->hw_cfg.cent_ch);
 
-#ifdef DOT11_VHT_AC
-//+++Add by shiang for debug
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s(): AP Set CentralFreq at %d(Prim=%d, HT-CentCh=%d, VHT-CentCh=%d, BBP_BW=%d)\n",
-						__FUNCTION__, pAd->hw_cfg.cent_ch, pAd->CommonCfg.Channel,
-						pAd->CommonCfg.CentralChannel, pAd->CommonCfg.vht_cent_ch,
-						pAd->CommonCfg.BBPCurrentBW));
-//---Add by shiang for debug
-#endif /* DOT11_VHT_AC */
 
 	return TRUE;
 }
@@ -742,8 +752,6 @@ VOID APStartUp(RTMP_ADAPTER *pAd)
                 pMbss->bcn_buf.bBcnSntReq = TRUE;
         else
                 pMbss->bcn_buf.bBcnSntReq = FALSE;
-#else
-        	pMbss->bcn_buf.bBcnSntReq = TRUE;
 #endif /* AIRPLAY_SUPPORT */
 	}
 
@@ -981,6 +989,7 @@ VOID APStop(RTMP_ADAPTER *pAd)
 #endif /* APCLI_SUPPORT */
 
 	MacTableReset(pAd);
+	CMDHandler(pAd);
 
 	RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS);
 
@@ -1040,6 +1049,9 @@ VOID APStop(RTMP_ADAPTER *pAd)
 #endif /* IDS_SUPPORT */
 
 
+#ifdef DOT11V_WNM_SUPPORT
+	DMSTable_Release(pAd);
+#endif /* DOT11V_WNM_SUPPORT */
 
 }
 
@@ -1097,10 +1109,6 @@ VOID MacTableMaintenance(RTMP_ADAPTER *pAd)
 #endif /* defined(PRE_ANT_SWITCH) || defined(CFO_TRACK) */
 	CHAR avgRssi;
 	BSS_STRUCT *pMbss;
-#ifdef WFA_VHT_PF
-	RSSI_SAMPLE *worst_rssi = NULL;
-	int worst_rssi_sta_idx = 0;
-#endif /* WFA_VHT_PF */
 #ifdef MT_MAC
 	BOOLEAN bPreAnyStationInPsm = FALSE;
 #endif /* MT_MAC */
@@ -1163,7 +1171,7 @@ VOID MacTableMaintenance(RTMP_ADAPTER *pAd)
 					MlmeEnqueue(pAd, APCLI_CTRL_STATE_MACHINE, APCLI_CTRL_DISCONNECT_REQ, 0, NULL,
 									(64 + (MAX_EXT_MAC_ADDR_SIZE * pEntry->func_tb_idx) + pEntry->MatchReptCliIdx));
 					RTMP_MLME_HANDLER(pAd);
-					RTMPRemoveRepeaterEntry(pAd, pEntry->func_tb_idx, pEntry->MatchReptCliIdx);
+					//RTMPRemoveRepeaterEntry(pAd, pEntry->func_tb_idx, pEntry->MatchReptCliIdx);
 					continue;
 				}
 			}
@@ -1389,6 +1397,15 @@ VOID MacTableMaintenance(RTMP_ADAPTER *pAd)
 					pEntry->ContinueTxFailCnt, pAd->ApCfg.EntryLifeCheck));
 			}
 		}
+#ifdef BAND_STEERING
+		else if (pAd->ApCfg.BndStrgTable.bEnabled == TRUE)
+		{
+			if (BndStrg_IsClientStay(pAd, pEntry) == FALSE)
+			{
+				bDisconnectSta = TRUE;
+			}
+		}
+#endif /* BAND_STEERING */
 
 		if ((pMbss->RssiLowForStaKickOut != 0) &&
 			  ( (avgRssi=RTMPAvgRssi(pAd, &pEntry->RssiSample)) < pMbss->RssiLowForStaKickOut))
@@ -1448,7 +1465,7 @@ VOID MacTableMaintenance(RTMP_ADAPTER *pAd)
 						MlmeEnqueue(pAd, APCLI_CTRL_STATE_MACHINE, APCLI_CTRL_DISCONNECT_REQ, 0, NULL,
 										(64 + MAX_EXT_MAC_ADDR_SIZE*apCliIdx + CliIdx));
 								RTMP_MLME_HANDLER(pAd);
-								RTMPRemoveRepeaterEntry(pAd, apCliIdx, CliIdx);
+								//RTMPRemoveRepeaterEntry(pAd, apCliIdx, CliIdx);
 					}
 				}
 #endif /* MAC_REPEATER_SUPPORT */
@@ -1458,6 +1475,39 @@ VOID MacTableMaintenance(RTMP_ADAPTER *pAd)
 			continue;
 		}
 
+#ifdef CONFIG_HOTSPOT_R2
+		if (pEntry->BTMDisassocCount == 1)
+		{
+			PUCHAR      pOutBuffer = NULL;
+			NDIS_STATUS NStatus;
+			ULONG       FrameLen = 0;
+			HEADER_802_11 DisassocHdr;
+			USHORT      Reason;
+
+			/*  send out a DISASSOC request frame */
+			NStatus = MlmeAllocateMemory(pAd, &pOutBuffer);
+			if (NStatus != NDIS_STATUS_SUCCESS)
+			{
+				MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, (" MlmeAllocateMemory fail  ..\n"));
+				/*NdisReleaseSpinLock(&pAd->MacTabLock); */
+				continue;
+			}
+
+			Reason = REASON_DISASSOC_INACTIVE;
+			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR, ("BTM ASSOC - Send DISASSOC  Reason = %d frame  TO %x %x %x %x %x %x \n",Reason,pEntry->Addr[0],
+				pEntry->Addr[1],pEntry->Addr[2],pEntry->Addr[3],pEntry->Addr[4],pEntry->Addr[5]));
+			MgtMacHeaderInit(pAd, &DisassocHdr, SUBTYPE_DISASSOC, 0, pEntry->Addr, pMbss->wdev.if_addr, pMbss->wdev.bssid);
+			MakeOutgoingFrame(pOutBuffer, &FrameLen, sizeof(HEADER_802_11), &DisassocHdr, 2, &Reason, END_OF_ARGS);
+			MiniportMMRequest(pAd, MGMT_USE_PS_FLAG, pOutBuffer, FrameLen);
+			MlmeFreeMemory(pAd, pOutBuffer);
+			//JERRY
+			if (!pEntry->IsKeep)
+				MacTableDeleteEntry(pAd, pEntry->Aid, pEntry->Addr);
+			continue;
+		}
+		if (pEntry->BTMDisassocCount != 0)
+			pEntry->BTMDisassocCount--;
+#endif /* CONFIG_HOTSPOT_R2 */
 
 		/* 3. garbage collect the ps_queue if the STA has being idle for a while */
 		if ((pEntry->PsMode == PWR_SAVE) && (tr_entry->ps_state == APPS_RETRIEVE_DONE || tr_entry->ps_state == APPS_RETRIEVE_IDLE))
@@ -1520,17 +1570,6 @@ VOID MacTableMaintenance(RTMP_ADAPTER *pAd)
         /* Check Current STA's Operation Mode is BW20 or BW40 */
         pMacTable->fCurrentStaBw40 = (pEntry->HTPhyMode.field.BW == BW_40) ? TRUE : FALSE;
 
-#ifdef WFA_VHT_PF
-		if (worst_rssi == NULL) {
-			worst_rssi = &pEntry->RssiSample;
-			worst_rssi_sta_idx = i;
-		} else {
-			if (worst_rssi->AvgRssi[0] > pEntry->RssiSample.AvgRssi[0]) {
-				worst_rssi = &pEntry->RssiSample;
-				worst_rssi_sta_idx = i;
-			}
-		}
-#endif /* WFA_VHT_PF */
 
 	}
 
@@ -1562,24 +1601,6 @@ VOID MacTableMaintenance(RTMP_ADAPTER *pAd)
 	}
 #endif
 
-#ifdef WFA_VHT_PF
-	if (worst_rssi != NULL &&
-		((pAd->Mlme.OneSecPeriodicRound % 10) == 5) &&
-		(worst_rssi_sta_idx >= 1))
-	{
-		CHAR gain = 2;
-		if (worst_rssi->AvgRssi[0] >= -40)
-			gain = 1;
-		else if (worst_rssi->AvgRssi[0] <= -50)
-			gain = 2;
-		rt85592_lna_gain_adjust(pAd, gain);
-		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("%s():WorstRSSI for STA(%02x:%02x:%02x:%02x:%02x:%02x):%d,%d,%d, Set Gain as %s\n",
-					__FUNCTION__,
-					PRINT_MAC(pMacTable->Content[worst_rssi_sta_idx].Addr),
-					worst_rssi->AvgRssi[0], worst_rssi->AvgRssi[1], worst_rssi->AvgRssi[2],
-					(gain == 2 ? "Mid" : "Low")));
-	}
-#endif /* WFA_VHT_PF */
 
 #ifdef PRE_ANT_SWITCH
 #endif /* PRE_ANT_SWITCH */
@@ -2614,6 +2635,22 @@ BOOLEAN DOT1X_EapTriggerAction(RTMP_ADAPTER *pAd, MAC_TABLE_ENTRY *pEntry)
 		/* Prepare a fake eapol-start body */
 		NdisMoveMemory(&FrameBuf[offset], eapol_start_1x_hdr, sizeof(eapol_start_1x_hdr));
 
+#ifdef CONFIG_HOTSPOT_R2
+		if (pEntry)
+		{
+        		BSS_STRUCT *pMbss = pEntry->pMbss;
+			if ((pMbss->HotSpotCtrl.HotSpotEnable == 1) && (pMbss->wdev.AuthMode == Ndis802_11AuthModeWPA2) && (pEntry->hs_info.ppsmo_exist == 1))
+			{
+                		UCHAR HS2_Header[4] = {0x50,0x6f,0x9a,0x12};
+				memcpy(&FrameBuf[offset+sizeof(eapol_start_1x_hdr)], HS2_Header, 4);
+				memcpy(&FrameBuf[offset+sizeof(eapol_start_1x_hdr)+4], &pEntry->hs_info, sizeof(struct _sta_hs_info));
+				frame_len += 4+sizeof(struct _sta_hs_info);
+				printk("event eapol start, %x:%x:%x:%x\n",
+						FrameBuf[offset+sizeof(eapol_start_1x_hdr)+4],FrameBuf[offset+sizeof(eapol_start_1x_hdr)+5],
+						FrameBuf[offset+sizeof(eapol_start_1x_hdr)+6],FrameBuf[offset+sizeof(eapol_start_1x_hdr)+7]);
+            		}
+		}
+#endif
 		/* Report to upper layer */
 		if (RTMP_L2_FRAME_TX_ACTION(pAd, apidx, FrameBuf, frame_len) == FALSE)
 			return FALSE;

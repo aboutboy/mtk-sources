@@ -77,6 +77,9 @@ UINT32 MtAsicGetCrcErrCnt(struct _RTMP_ADAPTER *pAd);
 UINT32 MtAsicGetPhyErrCnt(struct _RTMP_ADAPTER *pAd);
 UINT32 MtAsicGetCCACnt(struct _RTMP_ADAPTER *pAd);
 UINT32 MtAsicGetChBusyCnt(struct _RTMP_ADAPTER *pAd, UCHAR ch_idx);
+#ifdef CONFIG_STA_SUPPORT
+VOID MtAsicUpdateAutoFallBackTable(struct _RTMP_ADAPTER *pAd, UCHAR *pRateTable);
+#endif /* CONFIG_STA_SUPPORT */
 INT MtAsicSetAutoFallBack(struct _RTMP_ADAPTER *pAd, BOOLEAN enable);
 
 INT32 MtAsicAutoFallbackInit(struct _RTMP_ADAPTER *pAd);
@@ -263,6 +266,12 @@ INT32 MtAsicDMASchedulerInit(struct _RTMP_ADAPTER *pAd, INT mode);
 VOID MtAsicSetBARTxCntLimit(struct _RTMP_ADAPTER *pAd, BOOLEAN Enable, UINT32 Count);
 VOID MtAsicSetRTSTxCntLimit(struct _RTMP_ADAPTER *pAd, BOOLEAN Enable, UINT32 Count);
 VOID MtAsicSetTxSClassifyFilter(struct _RTMP_ADAPTER *pAd, UINT32 Port, UINT8 DestQ, UINT32 AggNums, UINT32 Filter);
+VOID MtAsicSetRxPspollFilter(RTMP_ADAPTER *pAd, CHAR enable);
+
+#if defined(MT7603) || defined(MT7628)
+INT32 MtAsicGetThemalSensor(struct _RTMP_ADAPTER *pAd, CHAR type);
+#endif /* MT7603 || MT7628  */
+
 								
 VOID MtAsicInitMac(struct _RTMP_ADAPTER *pAd);
 

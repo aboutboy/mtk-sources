@@ -72,6 +72,15 @@ VOID CFG80211RemainOnChannelTimeout(
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("CFG80211_NULL: P2P_CLI PWR_ACTIVE ROC_END\n"));
 		CFG80211_P2pClientSendNullFrame(pAd, PWR_ACTIVE);
 
+#ifdef CONFIG_STA_SUPPORT
+		if (INFRA_ON(pAd))
+		{
+			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("CFG80211_NULL: CONCURRENT STA PWR_ACTIVE ROC_END\n"));
+			RTMPSendNullFrame(pAd, pAd->CommonCfg.TxRate,
+								(OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_WMM_INUSED) ? TRUE:FALSE),
+								pAd->CommonCfg.bAPSDForcePowerSave ? PWR_SAVE : pAd->StaCfg.wdev.Psm);			
+		}
+#endif /*CONFIG_STA_SUPPORT*/
 
 		RTMPSetTimer(&pCfg80211_ctrl->Cfg80211RocTimer, RESTORE_COM_CH_TIME);
 	}
@@ -111,6 +120,12 @@ VOID CFG80211RemainOnChannelTimeout(
 #endif /* RT_CFG80211_P2P_MULTI_CHAN_SUPPORT */
 
 
+#ifdef CONFIG_STA_SUPPORT
+		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("CFG80211_NULL: INFRA_ON PWR_ACTIVE ROC_END\n"));
+		RTMPSendNullFrame(pAd, pAd->CommonCfg.TxRate,
+							(OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_WMM_INUSED) ? TRUE:FALSE),
+							pAd->CommonCfg.bAPSDForcePowerSave ? PWR_SAVE : pAd->StaCfg.wdev.Psm);
+#endif /*CONFIG_STA_SUPPORT*/
 		RTMPSetTimer(&pCfg80211_ctrl->Cfg80211RocTimer, RESTORE_COM_CH_TIME);
 	}
 	else

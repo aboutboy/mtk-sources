@@ -462,10 +462,6 @@ MAC_TABLE_ENTRY *FindWdsEntry(
 							pAd->CommonCfg.SupRateLen,
 							pAd->CommonCfg.ExtRate,
 							pAd->CommonCfg.ExtRateLen,
-#ifdef DOT11_VHT_AC
-							0,
-							NULL,
-#endif /* DOT11_VHT_AC */
 							&pAd->CommonCfg.HtCapability,
 							sizeof(pAd->CommonCfg.HtCapability));
 		}
@@ -581,10 +577,6 @@ VOID AsicUpdateWdsRxWCIDTable(RTMP_ADAPTER *pAd)
 						pAd->CommonCfg.SupRateLen,
 						pAd->CommonCfg.ExtRate,
 						pAd->CommonCfg.ExtRateLen,
-#ifdef DOT11_VHT_AC
-						0,
-						NULL,
-#endif /* DOT11_VHT_AC */
 						&pAd->CommonCfg.HtCapability,
 						sizeof(pAd->CommonCfg.HtCapability));
 

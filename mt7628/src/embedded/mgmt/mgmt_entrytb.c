@@ -228,6 +228,11 @@ VOID mgmt_tb_set_mcast_entry(RTMP_ADAPTER *pAd, UCHAR wcid)
 		pEntry->wdev = &pAd->ApCfg.MBSSID[MAIN_MBSSID].wdev;
 	}
 #endif /* CONFIG_AP_SUPPORT */
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd){
+		pEntry->wdev = &pAd->StaCfg.wdev;
+	}
+#endif /* CONFIG_AP_SUPPORT */
 }
 
 
@@ -331,6 +336,246 @@ MAC_TABLE_ENTRY *MacTableLookup(RTMP_ADAPTER *pAd, UCHAR *pAddr)
 }
 
 
+#ifdef CONFIG_STA_SUPPORT
+BOOLEAN StaUpdateMacTableEntry(
+	IN RTMP_ADAPTER *pAd,
+	IN MAC_TABLE_ENTRY *pEntry,
+	IN UCHAR MaxSupportedRateIn500Kbps,
+	IN HT_CAPABILITY_IE *ht_cap,
+	IN UCHAR htcap_len,
+	IN ADD_HT_INFO_IE *pAddHtInfo,
+	IN UCHAR AddHtInfoLen,
+	IN IE_LISTS *ie_list,
+	IN USHORT cap_info)
+{
+	UCHAR MaxSupportedRate = RATE_11;
+	BOOLEAN bSupportN = FALSE, bDoTxRateSwitch = FALSE;
+	struct wifi_dev *wdev;
+	STA_TR_ENTRY *tr_entry;
+
+	if (!pEntry)
+		return FALSE;
+
+	if (ADHOC_ON(pAd))
+		CLIENT_STATUS_CLEAR_FLAG(pEntry, fCLIENT_STATUS_WMM_CAPABLE);
+
+	MaxSupportedRate = dot11_2_ra_rate(MaxSupportedRateIn500Kbps);
+
+	if (WMODE_EQUAL(pAd->CommonCfg.PhyMode, WMODE_G)
+	    && (MaxSupportedRate < RATE_FIRST_OFDM_RATE))
+		return FALSE;
+
+#ifdef DOT11_N_SUPPORT
+	/* 11n only */
+	if (WMODE_HT_ONLY(pAd->CommonCfg.PhyMode)
+	    && (htcap_len == 0))
+		return FALSE;
+#endif /* DOT11_N_SUPPORT */
+
+	NdisAcquireSpinLock(&pAd->MacTabLock);
+
+	tr_entry = &pAd->MacTab.tr_entry[pEntry->wcid];
+
+	NdisZeroMemory(pEntry->R_Counter, sizeof(pEntry->R_Counter));
+	tr_entry->PortSecured = WPA_802_1X_PORT_SECURED;
+	if ((MaxSupportedRate < RATE_FIRST_OFDM_RATE) ||
+	    WMODE_EQUAL(pAd->CommonCfg.PhyMode, WMODE_B)) {
+		pEntry->RateLen = 4;
+		if (MaxSupportedRate >= RATE_FIRST_OFDM_RATE)
+			MaxSupportedRate = RATE_11;
+	} else
+		pEntry->RateLen = 12;
+
+	pEntry->MaxHTPhyMode.word = 0;
+	pEntry->MinHTPhyMode.word = 0;
+	pEntry->HTPhyMode.word = 0;
+	pEntry->MaxSupportedRate = MaxSupportedRate;
+
+	set_entry_phy_cfg(pAd, pEntry);
+
+	pEntry->CapabilityInfo = cap_info;
+	CLIENT_STATUS_CLEAR_FLAG(pEntry, fCLIENT_STATUS_AGGREGATION_CAPABLE);
+	CLIENT_STATUS_CLEAR_FLAG(pEntry, fCLIENT_STATUS_PIGGYBACK_CAPABLE);
+
+
+	wdev = &pAd->StaCfg.wdev;
+#ifdef DOT11_N_SUPPORT
+	NdisZeroMemory(&pEntry->HTCapability, sizeof (pEntry->HTCapability));
+	/* If this Entry supports 802.11n, upgrade to HT rate. */
+	if (((wdev->WepStatus != Ndis802_11WEPEnabled)
+	     && (wdev->WepStatus != Ndis802_11TKIPEnable))
+	    || (pAd->CommonCfg.HT_DisallowTKIP == FALSE)) {
+		if ((pAd->StaCfg.BssType == BSS_INFRA) &&
+		    (htcap_len != 0) &&
+		    WMODE_CAP_N(pAd->CommonCfg.PhyMode))
+			bSupportN = TRUE;
+		if ((pAd->StaCfg.BssType == BSS_ADHOC) &&
+		    (pAd->StaCfg.bAdhocN == TRUE) &&
+		    (htcap_len != 0) &&
+		    WMODE_CAP_N(pAd->CommonCfg.PhyMode))
+			bSupportN = TRUE;
+	}
+
+	if (bSupportN) {
+		if (ADHOC_ON(pAd))
+			CLIENT_STATUS_SET_FLAG(pEntry, fCLIENT_STATUS_WMM_CAPABLE);
+
+		ht_mode_adjust(pAd, pEntry, ht_cap, &pAd->CommonCfg.DesiredHtPhy);
+
+
+		/* find max fixed rate */
+		pEntry->MaxHTPhyMode.field.MCS = get_ht_max_mcs(pAd, &wdev->DesiredHtPhyInfo.MCSSet[0], &ht_cap->MCSSet[0]);
+
+		if (wdev->DesiredTransmitSetting.field.MCS != MCS_AUTO)
+			set_ht_fixed_mcs(pAd, pEntry, wdev->DesiredTransmitSetting.field.MCS, wdev->HTPhyMode.field.MCS);
+
+		pEntry->MaxHTPhyMode.field.STBC = (ht_cap->HtCapInfo.RxSTBC & (pAd->CommonCfg.DesiredHtPhy.TxSTBC));
+		pEntry->MpduDensity = ht_cap->HtCapParm.MpduDensity;
+		pEntry->MaxRAmpduFactor = ht_cap->HtCapParm.MaxRAmpduFactor;
+		pEntry->MmpsMode = (UCHAR) ht_cap->HtCapInfo.MimoPs;
+		pEntry->AMsduSize = (UCHAR) ht_cap->HtCapInfo.AMsduSize;
+		pEntry->HTPhyMode.word = pEntry->MaxHTPhyMode.word;
+
+		if (pAd->CommonCfg.DesiredHtPhy.AmsduEnable
+		    && (pAd->CommonCfg.REGBACapability.field.AutoBA == FALSE))
+			CLIENT_STATUS_SET_FLAG(pEntry, fCLIENT_STATUS_AMSDU_INUSED);
+
+		set_sta_ht_cap(pAd, pEntry, ht_cap);
+
+		NdisMoveMemory(&pEntry->HTCapability, ht_cap, htcap_len);
+
+		assoc_ht_info_debugshow(pAd, pEntry, htcap_len, ht_cap);
+	} else {
+		pAd->MacTab.fAnyStationIsLegacy = TRUE;
+	}
+#endif /* DOT11_N_SUPPORT */
+
+	pEntry->HTPhyMode.word = pEntry->MaxHTPhyMode.word;
+	pEntry->CurrTxRate = pEntry->MaxSupportedRate;
+
+#ifdef MFB_SUPPORT
+	pEntry->lastLegalMfb = 0;
+	pEntry->isMfbChanged = FALSE;
+	pEntry->fLastChangeAccordingMfb = FALSE;
+
+	pEntry->toTxMrq = TRUE;
+	pEntry->msiToTx = 0; /* has to increment whenever a mrq is sent */
+	pEntry->mrqCnt = 0;
+
+	pEntry->pendingMfsi = 0;
+
+	pEntry->toTxMfb = FALSE;
+	pEntry->mfbToTx = 0;
+	pEntry->mfb0 = 0;
+	pEntry->mfb1 = 0;
+#endif /* MFB_SUPPORT */
+
+	pEntry->freqOffsetValid = FALSE;
+
+
+	MlmeRAInit(pAd, pEntry);
+
+	/* Set asic auto fall back */
+	if (wdev->bAutoTxRateSwitch == TRUE) {
+		UCHAR TableSize = 0;
+
+		MlmeSelectTxRateTable(pAd, pEntry, &pEntry->pTable, &TableSize, &pEntry->CurrTxRateIndex);
+		bDoTxRateSwitch = TRUE;
+	} else {
+		pEntry->HTPhyMode.field.MODE = wdev->HTPhyMode.field.MODE;
+		pEntry->HTPhyMode.field.MCS = wdev->HTPhyMode.field.MCS;
+		bDoTxRateSwitch = FALSE;
+
+		/* If the legacy mode is set, overwrite the transmit setting of this entry. */
+		RTMPUpdateLegacyTxSetting((UCHAR)wdev->DesiredTransmitSetting.field.FixedTxMode, pEntry);
+	}
+
+	tr_entry->PortSecured = WPA_802_1X_PORT_SECURED;
+	pEntry->Sst = SST_ASSOC;
+	pEntry->AuthState = AS_AUTH_OPEN;
+	pEntry->AuthMode = wdev->AuthMode;
+	pEntry->WepStatus = wdev->WepStatus;
+	pEntry->wdev = wdev;
+	if (pEntry->AuthMode < Ndis802_11AuthModeWPA) {
+		pEntry->WpaState = AS_NOTUSE;
+		pEntry->PrivacyFilter = Ndis802_11PrivFilterAcceptAll;
+	} else {
+		pEntry->WpaState = AS_INITPSK;
+		pEntry->PrivacyFilter = Ndis802_11PrivFilter8021xWEP;
+	}
+
+	if (pAd->StaCfg.BssType == BSS_INFRA) {
+		UCHAR HashIdx = 0;
+		MAC_TABLE_ENTRY *pCurrEntry = NULL;
+		HashIdx = MAC_ADDR_HASH_INDEX(pAd->MlmeAux.Bssid);
+		if (pAd->MacTab.Hash[HashIdx] == NULL) {
+			pAd->MacTab.Hash[HashIdx] = pEntry;
+		} else {
+			pCurrEntry = pAd->MacTab.Hash[HashIdx];
+			while (pCurrEntry->pNext != NULL) {
+				pCurrEntry = pCurrEntry->pNext;
+			}
+			pCurrEntry->pNext = pEntry;
+		}
+		RTMPMoveMemory(pEntry->Addr, pAd->MlmeAux.Bssid, MAC_ADDR_LEN);
+		pEntry->Aid = BSSID_WCID;
+		pEntry->wcid = BSSID_WCID;
+		pEntry->pAd = pAd;
+		SET_ENTRY_CLIENT(pEntry);
+		pAd->MacTab.Size ++;
+
+	}
+
+#ifdef DOT11W_PMF_SUPPORT
+        RTMPInitTimer(pAd, &pEntry->SAQueryTimer, GET_TIMER_FUNCTION(PMF_SAQueryTimeOut), pEntry, FALSE);
+        RTMPInitTimer(pAd, &pEntry->SAQueryConfirmTimer, GET_TIMER_FUNCTION(PMF_SAQueryConfirmTimeOut), pEntry, FALSE);
+#endif /* DOT11W_PMF_SUPPORT */
+	NdisReleaseSpinLock(&pAd->MacTabLock);
+
+	/*update tx burst, must after unlock pAd->MacTabLock*/
+	rtmp_tx_burst_set(pAd);
+
+	if (bDoTxRateSwitch == TRUE)
+	{
+		pEntry->bAutoTxRateSwitch = TRUE;
+#if defined(MT7603) || defined(MT7628) || defined(MT7636)
+		// TODO: shiang-MT7603, I add this here because now we relay on "pEntry->bAutoTxRateSwitch" to decide TxD format!
+		MlmeNewTxRate(pAd, pEntry);
+#endif
+	}
+	else
+	{
+		pEntry->bAutoTxRateSwitch = FALSE;
+	}
+#ifdef WPA_SUPPLICANT_SUPPORT
+#ifndef NATIVE_WPA_SUPPLICANT_SUPPORT
+	if (pAd->StaCfg.wpa_supplicant_info.WpaSupplicantUP) {
+		SendAssocIEsToWpaSupplicant(pAd->net_dev, pAd->StaCfg.ReqVarIEs,
+					    pAd->StaCfg.ReqVarIELen);
+
+
+		RtmpOSWrielessEventSend(pAd->net_dev, RT_WLAN_EVENT_CUSTOM,
+					RT_ASSOC_EVENT_FLAG, NULL, NULL, 0);
+	}
+#endif /* NATIVE_WPA_SUPPLICANT_SUPPORT */
+#endif /* WPA_SUPPLICANT_SUPPORT */
+
+#ifdef NATIVE_WPA_SUPPLICANT_SUPPORT
+	{
+/*        union iwreq_data    wrqu; */
+		wext_notify_event_assoc(pAd->net_dev, pAd->StaCfg.ReqVarIEs,
+					pAd->StaCfg.ReqVarIELen);
+
+
+		RtmpOSWrielessEventSend(pAd->net_dev, RT_WLAN_EVENT_CGIWAP, -1,
+					pAd->MlmeAux.Bssid, NULL, 0);
+	}
+#endif /* NATIVE_WPA_SUPPLICANT_SUPPORT */
+
+
+	return TRUE;
+}
+#endif /* CONFIG_STA_SUPPORT */
 
 
 static INT mac_entry_reset(RTMP_ADAPTER *pAd, MAC_TABLE_ENTRY *pEntry, BOOLEAN clean)
@@ -369,12 +614,18 @@ MAC_TABLE_ENTRY *MacTableInsertEntry(
 	UCHAR HashIdx;
 	int i, FirstWcid;
 	MAC_TABLE_ENTRY *pEntry = NULL, *pCurrEntry;
+	STA_TR_ENTRY *tr_entry = NULL;
 
 	if (pAd->MacTab.Size >= MAX_LEN_OF_MAC_TABLE)
 		return NULL;
 
 	FirstWcid = 1;
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	if (pAd->StaCfg.BssType == BSS_INFRA)
+		FirstWcid = 2;
+#endif /* CONFIG_STA_SUPPORT */
 
 	/* allocate one MAC entry*/
 	NdisAcquireSpinLock(&pAd->MacTabLock);
@@ -384,6 +635,7 @@ MAC_TABLE_ENTRY *MacTableInsertEntry(
 		if (IS_ENTRY_NONE(&pAd->MacTab.Content[i]))
 		{
 			pEntry = &pAd->MacTab.Content[i];
+			tr_entry = &pAd->MacTab.tr_entry[i];
 
 			mac_entry_reset(pAd, pEntry, CleanAll);
 
@@ -409,6 +661,11 @@ MAC_TABLE_ENTRY *MacTableInsertEntry(
 			pEntry->LockEntryTx = FALSE;
 #endif /* WDS_SUPPORT */
 			pEntry->TimeStamp_toTxRing = 0;
+
+            pEntry->PsmPktCount = 0;
+            pEntry->PsmUpDuration = 0;
+			pEntry->PsmResetCount = 0;
+
 			// TODO: shiang-usw,  remove upper setting becasue we need to migrate to tr_entry!
 			pAd->MacTab.tr_entry[i].PsMode = PWR_ACTIVE;
 			pAd->MacTab.tr_entry[i].NoDataIdleCount = 0;
@@ -425,9 +682,28 @@ MAC_TABLE_ENTRY *MacTableInsertEntry(
 			pEntry->RSNIE_Len = 0;
 			NdisZeroMemory(pEntry->R_Counter, sizeof(pEntry->R_Counter));
 			pEntry->ReTryCounter = PEER_MSG1_RETRY_TIMER_CTR;
+			tr_entry->PortSecured = WPA_802_1X_PORT_NOT_SECURED;
 
 			do
 			{
+#ifdef CONFIG_STA_SUPPORT
+#if defined(DOT11Z_TDLS_SUPPORT) || defined(CFG_TDLS_SUPPORT)
+				if (ent_type == ENTRY_TDLS)
+				{
+					SET_ENTRY_TDLS(pEntry);
+					break;
+				}
+				else
+#endif /* defined(DOT11Z_TDLS_SUPPORT) || defined(CFG_TDLS_SUPPORT) */
+#ifdef QOS_DLS_SUPPORT
+				if (ent_type == ENTRY_DLS)
+				{
+					SET_ENTRY_DLS(pEntry);
+					break;
+				}
+				else
+#endif /* QOS_DLS_SUPPORT */
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef CONFIG_AP_SUPPORT
 #ifdef APCLI_SUPPORT
@@ -501,6 +777,15 @@ MAC_TABLE_ENTRY *MacTableInsertEntry(
 				}
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+				if (ent_type == ENTRY_AP || ent_type == ENTRY_ADHOC)
+				{
+					COPY_MAC_ADDR(pEntry->bssid, pAddr);
+					pEntry->AuthMode = pAd->StaCfg.wdev.AuthMode;
+					pEntry->WepStatus = pAd->StaCfg.wdev.WepStatus;
+					pEntry->PrivacyFilter = Ndis802_11PrivFilterAcceptAll;
+				}
+#endif /* CONFIG_STA_SUPPORT */
 			} while (FALSE);
 
 #ifdef MT_MAC
@@ -509,6 +794,8 @@ MAC_TABLE_ENTRY *MacTableInsertEntry(
 
 			RTMPInitTimer(pAd, &pEntry->EnqueueStartForPSKTimer, GET_TIMER_FUNCTION(EnqueueStartForPSKExec), pEntry, FALSE);
 
+#ifdef CONFIG_STA_SUPPORT
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef CONFIG_AP_SUPPORT
 			{
@@ -529,6 +816,12 @@ MAC_TABLE_ENTRY *MacTableInsertEntry(
 #endif /* CONFIG_AP_SUPPORT */
 
 
+#ifdef CONFIG_STA_SUPPORT
+#ifdef QOS_DLS_SUPPORT
+			if (IS_ENTRY_DLS(pEntry))
+				pAd->MacTab.tr_entry[pEntry->wcid].PortSecured = WPA_802_1X_PORT_SECURED;
+#endif /* QOS_DLS_SUPPORT */
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef STREAM_MODE_SUPPORT
 			/* Enable Stream mode for first three entries in MAC table */
@@ -556,7 +849,7 @@ MAC_TABLE_ENTRY *MacTableInsertEntry(
 			RTMP_REMOVE_PAIRWISE_KEY_ENTRY(pAd, (UCHAR)i);
 #ifdef MT_MAC
 			if (pAd->chipCap.hif_type == HIF_MT)
-				MT_ADDREMOVE_KEY(pAd, 1, pEntry->apidx, 0, pEntry->wcid, PAIRWISEKEYTABLE, &pEntry->PairwiseKey, pEntry->Addr);
+				MT_ADDREMOVE_KEY(pAd, 1, pEntry->func_tb_idx, 0, pEntry->wcid, PAIRWISEKEYTABLE, &pEntry->PairwiseKey, pEntry->Addr);
 #endif
 
 			/* Add this entry into ASIC RX WCID search table */
@@ -595,6 +888,11 @@ MAC_TABLE_ENTRY *MacTableInsertEntry(
 #ifdef CONFIG_AP_SUPPORT
 		IF_DEV_CONFIG_OPMODE_ON_AP(pAd)
 		{
+#ifdef DOT11V_WNM_SUPPORT
+			pEntry->Beclone = FALSE;
+			pEntry->bBSSMantSTASupport = FALSE;
+			pEntry->bDMSSTASupport = FALSE;
+#endif /* DOT11V_WNM_SUPPORT */
 
 #ifdef WSC_AP_SUPPORT
 			if (IS_ENTRY_CLIENT(pEntry) &&
@@ -669,13 +967,16 @@ BOOLEAN MacTableDeleteEntry(RTMP_ADAPTER *pAd, USHORT wcid, UCHAR *pAddr)
 
 	pEntry = &pAd->MacTab.Content[wcid];
 	tr_entry = &pAd->MacTab.tr_entry[wcid];
-	if (pEntry && !IS_ENTRY_NONE(pEntry))
-	{
+	
 #ifdef MT_PS
+	if (pEntry) {
 		MtPsRedirectDisableCheck(pAd, wcid);
 		tr_entry->ps_state = APPS_RETRIEVE_IDLE;
-		//OS_WAIT(2); /* Wait FW command arriving at MCU. */
-#endif /* MT_PS */
+	}
+#endif /* MT_PS */	
+
+	if (pEntry && !IS_ENTRY_NONE(pEntry))
+	{
 #ifdef CONFIG_AP_SUPPORT
 		WLAN_MR_TIM_BIT_CLEAR(pAd, pEntry->func_tb_idx, pEntry->Aid);
 #endif /* CONFIG_AP_SUPPORT */
@@ -692,12 +993,20 @@ BOOLEAN MacTableDeleteEntry(RTMP_ADAPTER *pAd, USHORT wcid, UCHAR *pAddr)
 		{
 
 #if defined(CONFIG_AP_SUPPORT) && defined(CONFIG_DOT11V_WNM)
-			if (pAd->ApCfg.MBSSID[pEntry->apidx].WNMCtrl.ProxyARPEnable)
+			if (pAd->ApCfg.MBSSID[pEntry->func_tb_idx].WNMCtrl.ProxyARPEnable)
 			{
-				RemoveIPv4ProxyARPEntry(pAd, &pAd->ApCfg.MBSSID[pEntry->apidx], pEntry->Addr);
-				RemoveIPv6ProxyARPEntry(pAd, &pAd->ApCfg.MBSSID[pEntry->apidx], pEntry->Addr);
+				RemoveIPv4ProxyARPEntry(pAd, &pAd->ApCfg.MBSSID[pEntry->func_tb_idx], pEntry->Addr);
+				RemoveIPv6ProxyARPEntry(pAd, &pAd->ApCfg.MBSSID[pEntry->func_tb_idx], pEntry->Addr);
 			}
+#ifdef CONFIG_HOTSPOT_R2
+			pEntry->IsKeep = 0;
+#endif /* CONFIG_HOTSPOT_R2 */
 #endif
+#ifdef DOT11V_WNM_SUPPORT
+#ifdef CONFIG_AP_SUPPORT
+			DeleteDMSEntry(pAd, pEntry);
+#endif /* CONFIG_AP_SUPPORT */
+#endif /* DOT11V_WNM_SUPPORT */
 
 #ifdef DOT11_N_SUPPORT
 			/* free resources of BA*/
@@ -719,6 +1028,8 @@ BOOLEAN MacTableDeleteEntry(RTMP_ADAPTER *pAd, USHORT wcid, UCHAR *pAddr)
 			RTMPReleaseTimer(&pEntry->SAQueryConfirmTimer, &Cancelled);
 #endif /* DOT11W_PMF_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef CONFIG_AP_SUPPORT
 			if (IS_ENTRY_CLIENT(pEntry)
@@ -835,6 +1146,7 @@ BOOLEAN MacTableDeleteEntry(RTMP_ADAPTER *pAd, USHORT wcid, UCHAR *pAddr)
 			//   			NdisZeroMemory(pEntry, sizeof(MAC_TABLE_ENTRY));
 			NdisZeroMemory(pEntry->Addr, MAC_ADDR_LEN);
 			/* invalidate the entry */
+			tr_entry->PortSecured = WPA_802_1X_PORT_NOT_SECURED;
 			SET_ENTRY_NONE(pEntry);
 
 			pAd->MacTab.Size--;
@@ -904,6 +1216,8 @@ VOID MacTableReset(RTMP_ADAPTER *pAd)
 		if (IS_ENTRY_CLIENT(pMacEntry))
 		{
 			RTMPReleaseTimer(&pMacEntry->EnqueueStartForPSKTimer, &Cancelled);
+#ifdef CONFIG_STA_SUPPORT
+#endif /* CONFIG_STA_SUPPORT */
 			pMacEntry->EnqueueEapolStartTimerRunning = EAPOL_START_DISABLE;
 
 #ifdef CONFIG_AP_SUPPORT

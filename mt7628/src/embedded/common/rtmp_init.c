@@ -206,7 +206,6 @@ NDIS_STATUS RTMPAllocAdapterBlock(VOID *handle, VOID **ppAdapter)
 		return Status;
 	}
 
-
 	/* Init ProbeRespIE Table */
 	for (index = 0; index < MAX_LEN_OF_BSS_TABLE; index++)
 	{
@@ -331,6 +330,57 @@ VOID NICInitAsicFromEEPROM(RTMP_ADAPTER *pAd)
 #endif /* RTMP_RF_RW_SUPPORT */
 
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+#ifdef RTMP_MAC_PCI
+		/* Read Hardware controlled Radio state enable bit*/
+		if (NicConfig2.field.HardwareRadioControl == 1)
+		{
+			UINT32 data = 0;
+			BOOLEAN radioOff = FALSE;
+			pAd->StaCfg.bHardwareRadio = TRUE;
+
+			{
+				/* Read GPIO pin2 as Hardware controlled radio state*/
+				RTMP_IO_READ32(pAd, GPIO_CTRL_CFG, &data);
+				if ((data & 0x04) == 0)
+					radioOff = TRUE;
+			}
+
+			if (radioOff)
+			{
+				pAd->StaCfg.bHwRadio = FALSE;
+				pAd->StaCfg.bRadio = FALSE;
+				/* RTMP_IO_WRITE32(pAd, PWR_PIN_CFG, 0x00001818); */
+				RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_RADIO_OFF);
+			}
+		}
+		else
+#endif /* RTMP_MAC_PCI */
+			pAd->StaCfg.bHardwareRadio = FALSE;
+
+		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("Use Hw Radio Control Pin=%d\n",
+					pAd->StaCfg.bHardwareRadio));
+
+#ifdef LED_CONTROL_SUPPORT
+		RTMPSetLED(pAd, pAd->StaCfg.bRadio == FALSE ? LED_RADIO_OFF : LED_RADIO_ON);
+#endif /* LED_CONTROL_SUPPORT */
+
+#ifdef RTMP_MAC_PCI
+		if (pAd->StaCfg.bRadio == TRUE)
+		{
+			AsicSendCmdToMcuAndWait(pAd, 0x30, PowerRadioOffCID, 0xff, 0x02, FALSE);
+
+			/*AsicSendCommandToMcu(pAd, 0x30, 0xff, 0xff, 0x02, FALSE);*/
+			AsicSendCmdToMcuAndWait(pAd, 0x31, PowerWakeCID, 0x00, 0x00, FALSE);
+		}
+#endif /* RTMP_MAC_PCI */
+	}
+
+#ifdef PCIE_PS_SUPPORT
+#endif /* PCIE_PS_SUPPORT */
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef WIN_NDIS
 	/* Turn off patching for cardbus controller */
@@ -403,6 +453,12 @@ VOID NICInitAsicFromEEPROM(RTMP_ADAPTER *pAd)
 
 	AsicSetRxStream(pAd, pAd->Antenna.field.RxPath);
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		AsicSetTxStream(pAd, pAd->Antenna.field.TxPath, OPMODE_STA, FALSE);
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 	RTMP_EEPROM_ASIC_INIT(pAd);
 
@@ -659,6 +715,18 @@ NDIS_STATUS NICInitializeAsic(RTMP_ADAPTER *pAd, BOOLEAN bHardReset)
 	/* Clear raw counters*/
 	NicResetRawCounters(pAd);
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		/* Add radio off control */
+		if (pAd->StaCfg.bRadio == FALSE)
+		{
+			/* RTMP_IO_WRITE32(pAd, PWR_PIN_CFG, 0x00001818);*/
+			RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_RADIO_OFF);
+			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("Set Radio Off\n"));
+		}
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("<-- NICInitializeAsic\n"));
 
@@ -713,7 +781,23 @@ VOID NICResetFromError(RTMP_ADAPTER *pAd)
 		AsicBBPAdjust(pAd);
 	}
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		AsicStaBbpTuning(pAd);
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		if (INFRA_ON(pAd) && (pAd->CommonCfg.CentralChannel != pAd->CommonCfg.Channel)
+			&& (pAd->MlmeAux.HtCapability.HtCapInfo.ChannelWidth == BW_40))
+			rf_channel = pAd->CommonCfg.CentralChannel;
+		else
+			rf_channel = pAd->CommonCfg.Channel;
+	}
+#endif /* CONFIG_STA_SUPPORT */
 #ifdef CONFIG_AP_SUPPORT
 	IF_DEV_CONFIG_OPMODE_ON_AP(pAd)
 	{
@@ -945,6 +1029,15 @@ VOID UserCfgExit(RTMP_ADAPTER *pAd)
 #ifdef MAC_REPEATER_SUPPORT
 	NdisFreeSpinLock(&pAd->ApCfg.ReptCliEntryLock);
 #endif /* MAC_REPEATER_SUPPORT */
+
+#ifdef CONFIG_AP_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_AP(pAd)
+	{
+#ifdef BAND_STEERING
+		BndStrg_Release(pAd);
+#endif /* BAND_STEERING */
+	}
+#endif /* CONFIG_AP_SUPPORT */
 }
 
 
@@ -1002,6 +1095,10 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
 #ifdef LED_CONTROL_SUPPORT
 	pAd->LedCntl.LedIndicatorStrength = 0;
 #endif /* LED_CONTROL_SUPPORT */
+#ifdef CONFIG_STA_SUPPORT
+	pAd->RLnkCtrlOffset = 0;
+	pAd->HostLnkCtrlOffset = 0;
+#endif /* CONFIG_STA_SUPPORT */
 #endif /* RTMP_MAC_PCI */
 
 	pAd->bAutoTxAgcA = FALSE;			/* Default is OFF*/
@@ -1090,6 +1187,9 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
 		UAPSD_INFO_INIT(&pAd->ApCfg.MBSSID[IdMbss].wdev.UapsdInfo);
 }
 #endif /* CONFIG_AP_SUPPORT */
+#ifdef CONFIG_STA_SUPPORT
+	pAd->StaCfg.wdev.UapsdInfo.bAPSDCapable = FALSE;
+#endif /* CONFIG_STA_SUPPORT */
 #endif /* UAPSD_SUPPORT */
 	pAd->CommonCfg.bNeedSendTriggerFrame = FALSE;
 	pAd->CommonCfg.TriggerTimerCount = 0;
@@ -1215,6 +1315,77 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
 
 	pAd->CommonCfg.bRalinkBurstMode = FALSE;
 
+#ifdef CONFIG_STA_SUPPORT
+	/* part II. intialize STA specific configuration*/
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		RX_FILTER_SET_FLAG(pAd, fRX_FILTER_ACCEPT_DIRECT);
+		RX_FILTER_CLEAR_FLAG(pAd, fRX_FILTER_ACCEPT_MULTICAST);
+		RX_FILTER_SET_FLAG(pAd, fRX_FILTER_ACCEPT_BROADCAST);
+		RX_FILTER_SET_FLAG(pAd, fRX_FILTER_ACCEPT_ALL_MULTICAST);
+
+		/*7636 psm*/
+		pAd->StaCfg.wdev.Psm = PWR_ACTIVE;
+
+		pAd->StaCfg.PairCipher = Ndis802_11EncryptionDisabled;
+		pAd->StaCfg.GroupCipher = Ndis802_11EncryptionDisabled;
+		pAd->StaCfg.bMixCipher = FALSE;
+		pAd->StaCfg.wdev.DefaultKeyId = 0;
+
+		/* 802.1x port control*/
+		pAd->StaCfg.PrivacyFilter = Ndis802_11PrivFilter8021xWEP;
+		pAd->StaCfg.wdev.PortSecured = WPA_802_1X_PORT_NOT_SECURED;
+		pAd->StaCfg.LastMicErrorTime = 0;
+		pAd->StaCfg.MicErrCnt        = 0;
+		pAd->StaCfg.bBlockAssoc      = FALSE;
+		pAd->StaCfg.WpaState         = SS_NOTUSE;
+
+		pAd->CommonCfg.NdisRadioStateOff = FALSE;		/* New to support microsoft disable radio with OID command*/
+
+		pAd->StaCfg.RssiTrigger = 0;
+		NdisZeroMemory(&pAd->StaCfg.RssiSample, sizeof(RSSI_SAMPLE));
+		pAd->StaCfg.RssiTriggerMode = RSSI_TRIGGERED_UPON_BELOW_THRESHOLD;
+		pAd->StaCfg.AtimWin = 0;
+		pAd->StaCfg.DefaultListenCount = 3;/*default listen count;*/
+#if defined(DOT11Z_TDLS_SUPPORT) || defined(CFG_TDLS_SUPPORT)
+		pAd->StaCfg.DefaultListenCount = 1;
+#endif /* defined(DOT11Z_TDLS_SUPPORT) || defined(CFG_TDLS_SUPPORT) */
+		pAd->StaCfg.BssType = BSS_INFRA;  /* BSS_INFRA or BSS_ADHOC or BSS_MONITOR*/
+		pAd->StaCfg.bSkipAutoScanConn = FALSE;
+		OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_DOZE);
+		OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_WAKEUP_NOW);
+
+		pAd->StaCfg.wdev.bAutoTxRateSwitch = TRUE;
+		pAd->StaCfg.wdev.DesiredTransmitSetting.field.MCS = MCS_AUTO;
+		pAd->StaCfg.bAutoConnectIfNoSSID = FALSE;
+		pAd->StaCfg.wdev.bLinkUpDone = FALSE;
+		os_alloc_mem(NULL, (UCHAR **)&pAd->StaCfg.wdev.pEapolPktFromAP, sizeof(RX_BLK));
+	}
+
+#ifdef EXT_BUILD_CHANNEL_LIST
+	pAd->StaCfg.IEEE80211dClientMode = Rt802_11_D_None;
+#endif /* EXT_BUILD_CHANNEL_LIST */
+
+#ifdef RTMP_MAC_PCI
+	pAd->brt30xxBanMcuCmd = FALSE;
+	pAd->StaCfg.PSControl.field.EnableNewPS=FALSE;
+
+#ifdef PCIE_PS_SUPPORT
+	pAd->StaCfg.PSControl.field.EnableNewPS=TRUE;
+	pAd->b3090ESpecialChip = FALSE;
+	/*The value of PowerMode could be 1 or 3. Level 3 could save more power than Level 1. */
+	pAd->StaCfg.PSControl.field.rt30xxPowerMode=3;
+	pAd->StaCfg.PSControl.field.rt30xxForceASPMTest=0;
+	pAd->StaCfg.PSControl.field.rt30xxFollowHostASPM=1;
+
+	if (IS_SUPPORT_PCIE_PS_L3(pAd))
+	{
+		pAd->chipCap.HW_PCIE_PS_L3_ENABLE=TRUE;
+		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("Support PCIe PS3 \n"));
+	}
+#endif /* PCIE_PS_SUPPORT */
+#endif /* RTMP_MAC_PCI */
+#endif /* CONFIG_STA_SUPPORT */
 
 	/* global variables mXXXX used in MAC protocol state machines*/
 	OPSTATUS_SET_FLAG(pAd, fOP_STATUS_RECEIVE_DTIM);
@@ -1225,6 +1396,160 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
 	pAd->CommonCfg.PhyMode = (WMODE_B | WMODE_G);		/* default PHY mode*/
 	OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_SHORT_PREAMBLE_INUSED);  /* CCK use LONG preamble*/
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		/* user desired power mode*/
+		pAd->StaCfg.WindowsPowerMode = Ndis802_11PowerModeCAM;
+		pAd->StaCfg.WindowsBatteryPowerMode = Ndis802_11PowerModeCAM;
+		pAd->StaCfg.bWindowsACCAMEnable = FALSE;
+
+		pAd->StaCfg.bHwRadio = TRUE; /* Default Hardware Radio status is On*/
+		pAd->StaCfg.bSwRadio = TRUE; /* Default Software Radio status is On*/
+		pAd->StaCfg.bRadio = TRUE; /* bHwRadio && bSwRadio*/
+		pAd->StaCfg.bHardwareRadio = FALSE;		/* Default is OFF*/
+		pAd->StaCfg.bShowHiddenSSID = FALSE;		/* Default no show*/
+
+		/* Nitro mode control*/
+#if defined(NATIVE_WPA_SUPPLICANT_SUPPORT) || defined(RT_CFG80211_SUPPORT)
+		pAd->StaCfg.bAutoReconnect = FALSE;
+#else
+		pAd->StaCfg.bAutoReconnect = TRUE;
+#endif /* NATIVE_WPA_SUPPLICANT_SUPPORT || RT_CFG80211_SUPPORT*/
+
+		/* Save the init time as last scan time, the system should do scan after 2 seconds.*/
+		/* This patch is for driver wake up from standby mode, system will do scan right away.*/
+		NdisGetSystemUpTime(&pAd->StaCfg.LastScanTime);
+		if (pAd->StaCfg.LastScanTime > 10 * OS_HZ)
+			pAd->StaCfg.LastScanTime -= (10 * OS_HZ);
+
+		NdisZeroMemory(pAd->nickname, IW_ESSID_MAX_SIZE+1);
+#ifdef PROFILE_STORE
+		pAd->bWriteDat = FALSE;
+#endif /* PROFILE_STORE */
+
+#ifdef WPA_SUPPLICANT_SUPPORT
+		pAd->StaCfg.wdev.IEEE8021X = FALSE;
+		pAd->StaCfg.wpa_supplicant_info.IEEE8021x_required_keys = FALSE;
+		pAd->StaCfg.wpa_supplicant_info.WpaSupplicantUP = WPA_SUPPLICANT_DISABLE;
+		pAd->StaCfg.wpa_supplicant_info.bRSN_IE_FromWpaSupplicant = FALSE;
+
+#if defined(NATIVE_WPA_SUPPLICANT_SUPPORT) || defined(RT_CFG80211_SUPPORT)
+		pAd->StaCfg.wpa_supplicant_info.WpaSupplicantUP = WPA_SUPPLICANT_ENABLE;
+#ifdef PROFILE_STORE
+		pAd->bWriteDat = TRUE;
+#endif /* PROFILE_STORE */
+#endif /* NATIVE_WPA_SUPPLICANT_SUPPORT || RT_CFG80211_SUPPORT */
+
+		pAd->StaCfg.wpa_supplicant_info.bLostAp = FALSE;
+		pAd->StaCfg.wpa_supplicant_info.pWpsProbeReqIe = NULL;
+		pAd->StaCfg.wpa_supplicant_info.WpsProbeReqIeLen = 0;
+		pAd->StaCfg.wpa_supplicant_info.pWpaAssocIe = NULL;
+		pAd->StaCfg.wpa_supplicant_info.WpaAssocIeLen = 0;
+		pAd->StaCfg.wpa_supplicant_info.WpaSupplicantScanCount = 0;
+#ifdef CFG_TDLS_SUPPORT
+		NdisZeroMemory(&(pAd->StaCfg.wpa_supplicant_info.CFG_Tdls_info) , sizeof(CFG_TDLS_STRUCT));
+		pAd->StaCfg.wpa_supplicant_info.CFG_Tdls_info.bCfgTDLSCapable = 1;
+		pAd->StaCfg.wpa_supplicant_info.CFG_Tdls_info.TdlsChSwitchSupp = 1;
+		cfg_tdls_TimerInit(pAd);
+#endif /* CFG_TDLS_SUPPORT */
+#endif /* WPA_SUPPLICANT_SUPPORT */
+
+#ifdef WSC_STA_SUPPORT
+		{
+			INT					idx;
+			PWSC_CTRL 			pWscControl;
+#ifdef WSC_V2_SUPPORT
+			PWSC_V2_INFO	pWscV2Info;
+#endif /* WSC_V2_SUPPORT */
+
+			/*
+				WscControl cannot be zero here, because WscControl timers are initial in MLME Initialize
+				and MLME Initialize is called before UserCfgInit.
+			*/
+			pWscControl = &pAd->StaCfg.WscControl;
+			pWscControl->WscConfMode = WSC_DISABLE;
+			pWscControl->WscMode = WSC_PIN_MODE;
+			pWscControl->WscConfStatus = WSC_SCSTATE_UNCONFIGURED;
+#ifdef WSC_V2_SUPPORT
+			pWscControl->WscConfigMethods= 0x238C;
+#else
+			pWscControl->WscConfigMethods= 0x008C;
+#endif /* WSC_V2_SUPPORT */
+			pWscControl->WscState = WSC_STATE_OFF;
+			pWscControl->WscStatus = STATUS_WSC_NOTUSED;
+			pWscControl->WscPinCode = 0;
+			pWscControl->WscLastPinFromEnrollee = 0;
+			pWscControl->WscEnrollee4digitPinCode = FALSE;
+			pWscControl->WscEnrolleePinCode = 0;
+			pWscControl->WscSelReg = 0;
+			NdisZeroMemory(&pAd->StaCfg.WscControl.RegData, sizeof(WSC_REG_DATA));
+			NdisZeroMemory(&pWscControl->WscProfile, sizeof(WSC_PROFILE));
+			pWscControl->WscUseUPnP = 0;
+			pWscControl->WscEnAssociateIE = TRUE;
+			pWscControl->WscEnProbeReqIE = TRUE;
+			pWscControl->RegData.ReComputePke = 1;
+			pWscControl->lastId = 1;
+			pWscControl->EntryIfIdx = BSS0;
+			pWscControl->pAd = pAd;
+			pWscControl->WscDriverAutoConnect = 0x02;
+			pAd->WriteWscCfgToDatFile = 0xFF;
+			pWscControl->WscRejectSamePinFromEnrollee = FALSE;
+			pWscControl->WpsApBand = PREFERRED_WPS_AP_PHY_TYPE_AUTO_SELECTION;
+			pWscControl->bCheckMultiByte = FALSE;
+			pWscControl->bWscAutoTigeer = FALSE;
+			/* Enrollee Nonce, first generate and save to Wsc Control Block*/
+			for (idx = 0; idx < 16; idx++)
+			{
+				pWscControl->RegData.SelfNonce[idx] = RandomByte(pAd);
+			}
+			pWscControl->WscRxBufLen = 0;
+			pWscControl->pWscRxBuf = NULL;
+			os_alloc_mem(pAd, &pWscControl->pWscRxBuf, MGMT_DMA_BUFFER_SIZE);
+			if (pWscControl->pWscRxBuf)
+				NdisZeroMemory(pWscControl->pWscRxBuf, MGMT_DMA_BUFFER_SIZE);
+			pWscControl->WscTxBufLen = 0;
+			pWscControl->pWscTxBuf = NULL;
+			os_alloc_mem(pAd, &pWscControl->pWscTxBuf, MGMT_DMA_BUFFER_SIZE);
+			if (pWscControl->pWscTxBuf)
+				NdisZeroMemory(pWscControl->pWscTxBuf, MGMT_DMA_BUFFER_SIZE);
+			pWscControl->bWscFragment = FALSE;
+			pWscControl->WscFragSize = 128;
+			initList(&pWscControl->WscPeerList);
+			NdisAllocateSpinLock(pAd, &pWscControl->WscPeerListSemLock);
+
+#ifdef WSC_V2_SUPPORT
+			pWscV2Info = &pWscControl->WscV2Info;
+			pWscV2Info->bWpsEnable = TRUE;
+			pWscV2Info->ExtraTlv.TlvLen = 0;
+			pWscV2Info->ExtraTlv.TlvTag = 0;
+			pWscV2Info->ExtraTlv.pTlvData = NULL;
+			pWscV2Info->ExtraTlv.TlvType = TLV_ASCII;
+			pWscV2Info->bEnableWpsV2 = TRUE;
+			pWscV2Info->bForceSetAP = FALSE;
+#endif /* WSC_V2_SUPPORT */
+
+		}
+#endif /* WSC_STA_SUPPORT */
+		NdisZeroMemory(pAd->StaCfg.ReplayCounter, 8);
+
+
+		pAd->StaCfg.bAutoConnectByBssid = FALSE;
+		pAd->StaCfg.BeaconLostTime = BEACON_LOST_TIME;
+		NdisZeroMemory(pAd->StaCfg.WpaPassPhrase, 64);
+		pAd->StaCfg.WpaPassPhraseLen = 0;
+		pAd->StaCfg.bAutoRoaming = FALSE;
+		pAd->StaCfg.bForceTxBurst = FALSE;
+		pAd->StaCfg.bNotFirstScan = FALSE;
+		pAd->StaCfg.bImprovedScan = FALSE;
+#ifdef DOT11_N_SUPPORT
+		pAd->StaCfg.bAdhocN = TRUE;
+#endif /* DOT11_N_SUPPORT */
+		pAd->StaCfg.bFastConnect = FALSE;
+		pAd->StaCfg.bAdhocCreator = FALSE;
+		pAd->MlmeAux.OldChannel = 0;
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 	/* Default for extra information is not valid*/
 	pAd->ExtraInfo = EXTRA_INFO_CLEAR;
@@ -1433,6 +1758,23 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
 			wdev->DesiredTransmitSetting.field.MCS = MCS_AUTO;
 			apcli_entry->wdev.UapsdInfo.bAPSDCapable = FALSE;
 
+#ifdef WPA_SUPPLICANT_SUPPORT
+			apcli_entry->wdev.IEEE8021X=FALSE;
+			apcli_entry->wpa_supplicant_info.IEEE8021x_required_keys=FALSE;
+			apcli_entry->wpa_supplicant_info.bRSN_IE_FromWpaSupplicant=FALSE;
+			apcli_entry->wpa_supplicant_info.bLostAp=FALSE;
+			apcli_entry->bScanReqIsFromWebUI=FALSE;
+			apcli_entry->bConfigChanged=FALSE;
+			apcli_entry->wpa_supplicant_info.DesireSharedKeyId=0;
+			apcli_entry->wpa_supplicant_info.WpaSupplicantUP=WPA_SUPPLICANT_DISABLE;
+			apcli_entry->wpa_supplicant_info.WpaSupplicantScanCount=0;
+			apcli_entry->wpa_supplicant_info.pWpsProbeReqIe=NULL;
+			apcli_entry->wpa_supplicant_info.WpsProbeReqIeLen=0;
+			apcli_entry->wpa_supplicant_info.pWpaAssocIe=NULL;
+			apcli_entry->wpa_supplicant_info.WpaAssocIeLen=0;
+			apcli_entry->SavedPMKNum=0;
+			RTMPZeroMemory(apcli_entry->SavedPMK, (PMKID_NO * sizeof(BSSID_INFO)));
+#endif/*WPA_SUPPLICANT_SUPPORT*/
 			pAd->ApCfg.ApCliTab[j].bBlockAssoc=FALSE;
 			pAd->ApCfg.ApCliTab[j].MicErrCnt=0;
 #ifdef APCLI_CONNECTION_TRIAL
@@ -1453,6 +1795,14 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
 #endif /* CONFIG_AP_SUPPORT */
 
 
+#ifdef CONFIG_STA_SUPPORT
+#ifdef IP_ASSEMBLY
+	if (pAd->OpMode == OPMODE_STA)
+	{
+		pAd->StaCfg.bFragFlag = TRUE;
+	}
+#endif /* IP_ASSEMBLY */
+#endif /* CONFIG_STA_SUPPORT */
 
 	/*
 		part IV. others
@@ -1493,12 +1843,20 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
 
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+#ifdef PCIE_PS_SUPPORT
+	RTMP_SET_PSFLAG(pAd, fRTMP_PS_CAN_GO_SLEEP);
+#endif /* PCIE_PS_SUPPORT */
+#endif /* CONFIG_STA_SUPPORT */
 
 	pAd->RxAnt.Pair1PrimaryRxAnt = 0;
 	pAd->RxAnt.Pair1SecondaryRxAnt = 1;
 
 		pAd->RxAnt.EvaluatePeriod = 0;
 		pAd->RxAnt.RcvPktNumWhenEvaluate = 0;
+#ifdef CONFIG_STA_SUPPORT
+		pAd->RxAnt.Pair1AvgRssi[0] = pAd->RxAnt.Pair1AvgRssi[1] = 0;
+#endif /* CONFIG_STA_SUPPORT */
 #ifdef CONFIG_AP_SUPPORT
 		pAd->RxAnt.Pair1AvgRssiGroup1[0] = pAd->RxAnt.Pair1AvgRssiGroup1[1] = 0;
 		pAd->RxAnt.Pair1AvgRssiGroup2[0] = pAd->RxAnt.Pair1AvgRssiGroup2[1] = 0;
@@ -1552,6 +1910,10 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
 	pAd->Dot11_H.CSCount = 0;
 	pAd->Dot11_H.CSPeriod = 10;
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+		pAd->Dot11_H.RDMode = RD_NORMAL_MODE;
+#endif
 
 #ifdef CONFIG_AP_SUPPORT
 	IF_DEV_CONFIG_OPMODE_ON_AP(pAd)
@@ -1591,18 +1953,6 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
 #endif /* APCLI_AUTO_CONNECT_SUPPORT */
 #endif /* APCLI_SUPPORT */
 
-#ifdef DOT11_VHT_AC
-#ifdef WFA_VHT_PF
-	pAd->force_amsdu = FALSE;
-	pAd->force_noack = FALSE;
-	pAd->force_vht_op_mode = FALSE;
-	pAd->vht_force_sgi = FALSE;
-	pAd->vht_force_tx_stbc = FALSE;
-	pAd->CommonCfg.vht_nss_cap = pAd->chipCap.max_nss;
-	pAd->CommonCfg.vht_mcs_cap = pAd->chipCap.max_vht_mcs;
-	pAd->CommonCfg.vht_cent_ch2 = 0; // we don't support 160MHz BW now!
-#endif /* WFA_VHT_PF */
-#endif /* DOT11_VHT_AC */
 
 #ifdef CONFIG_FPGA_MODE
 	pAd->fpga_ctl.fpga_on = 0x0;
@@ -1651,9 +2001,6 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
 
 
 
-#ifdef DOT11_VHT_AC
-	pAd->CommonCfg.bNonVhtDisallow = FALSE;
-#endif /* DOT11_VHT_AC */
 
 
 #ifdef MT_MAC
@@ -1669,6 +2016,7 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
 	pAd->PSETriggerType1Count = 0;
 	pAd->PSETriggerType1Count = 0;
 	pAd->PSEResetFailCount = 0;
+	pAd->pse_reset_exclude_flag = FALSE;
 #endif
 
 #ifdef RTMP_MAC_PCI
@@ -1695,6 +2043,10 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
 	pAd->Mlme.channel_2nd_bw = 0;
 
 #endif /* CONFIG_MULTI_CHANNEL */
+
+#ifdef CONFIG_SNIFFER_SUPPORT
+	pAd->monitor_ctrl.CurrentMonitorMode = 0;
+#endif /* CONFIG_SNIFFER_SUPPORT */
 
 
     pAd->bPS_Retrieve =1;
@@ -2215,6 +2567,10 @@ INT RtmpRaDevCtrlInit(VOID *pAdSrc, RTMP_INF_TYPE infType)
 	/* Assign the interface type. We need use it when do register/EEPROM access.*/
 	pAd->infType = infType;
 
+#ifdef CONFIG_STA_SUPPORT
+	pAd->OpMode = OPMODE_STA;
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("STA Driver version-%s\n", STA_DRIVER_VERSION));
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef CONFIG_AP_SUPPORT
 	pAd->OpMode = OPMODE_AP;
@@ -2227,7 +2583,6 @@ INT RtmpRaDevCtrlInit(VOID *pAdSrc, RTMP_INF_TYPE infType)
 	pAd->OpMode = OPMODE_STA;
 #endif /* P2P_SUPPORT || RT_CFG80211_P2P_SUPPORT || CFG80211_MULTI_STA */
 
-    RTMP_SEM_EVENT_INIT(&(pAd->mcu_atomic), &pAd->RscSemMemList);
     RTMP_SEM_EVENT_INIT(&(pAd->AutoRateLock), &pAd->RscSemMemList);
 
 #ifdef MULTIPLE_CARD_SUPPORT
@@ -2257,6 +2612,9 @@ INT RtmpRaDevCtrlInit(VOID *pAdSrc, RTMP_INF_TYPE infType)
 #ifdef CONFIG_AP_SUPPORT
 		strcpy(pAd->MC_FileName, AP_PROFILE_PATH);
 #endif /* CONFIG_AP_SUPPORT */
+#ifdef CONFIG_STA_SUPPORT
+		strcpy(pAd->MC_FileName, STA_PROFILE_PATH);
+#endif /* CONFIG_STA_SUPPORT */
 
 	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("MC> ROW = %d, PATH = %s\n", pAd->MC_RowID, pAd->MC_FileName));
 }
@@ -2305,6 +2663,11 @@ extern UINT8  MC_CardUsed[MAX_NUM_OF_MULTIPLE_CARD];
 		MC_CardUsed[pAd->MC_RowID] = 0; /* not clear MAC address*/
 #endif /* MULTIPLE_CARD_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+#ifdef CREDENTIAL_STORE
+		NdisFreeSpinLock(&pAd->StaCtIf.Lock);
+#endif /* CREDENTIAL_STORE */
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef RLT_MAC
 	if ((IS_MT76x0(pAd) || IS_MT76x2(pAd))&& (pAd->WlanFunCtrl.field.WLAN_EN == 1))
@@ -2313,7 +2676,6 @@ extern UINT8  MC_CardUsed[MAX_NUM_OF_MULTIPLE_CARD];
 	}
 #endif /* RLT_MAC */
 
-    RTMP_SEM_EVENT_DESTORY(&(pAd->mcu_atomic));
     RTMP_SEM_EVENT_DESTORY(&(pAd->AutoRateLock));
     
 #ifdef RTMP_MAC_SDIO
@@ -2434,6 +2796,13 @@ VOID CMDHandler(RTMP_ADAPTER *pAd)
 				case CMDTHREAD_CONNECT_RESULT_INFORM:
 #ifdef LINUX
 #ifdef RT_CFG80211_SUPPORT
+#ifdef CONFIG_STA_SUPPORT
+					RT_CFG80211_CONN_RESULT_INFORM(pAd,
+												pAd->MlmeAux.Bssid,
+												pData, cmdqelmt->bufferlength,
+												pData, cmdqelmt->bufferlength,
+												1);
+#endif /* CONFIG_STA_SUPPORT */
 #endif /* RT_CFG80211_SUPPORT */
 #endif /* LINUX */
 					break;
@@ -2458,6 +2827,16 @@ VOID CMDHandler(RTMP_ADAPTER *pAd)
 					}
 					break;
 #endif /* MT_PS */
+				case CMDTHREAD_APCLI_PBC_TIMEOUT:
+					{
+						UCHAR channel = 0;
+						RTMP_STRING ChStr[5] = {0};
+						NdisMoveMemory(&channel , pData, sizeof(UCHAR));
+						DBGPRINT(RT_DEBUG_TRACE | DBG_FUNC_PS, ("channel=%d CMDTHREAD_APCLI_PBC_TIMEOUT\n", channel));
+						snprintf(ChStr, sizeof(ChStr), "%d", channel);
+						Set_Channel_Proc(pAd, ChStr);
+					}
+					break;
 #endif /* MT_MAC */
 #ifdef CONFIG_AP_SUPPORT
 				case CMDTHREAD_AP_UPDATE_CAPABILITY_AND_ERPIE:

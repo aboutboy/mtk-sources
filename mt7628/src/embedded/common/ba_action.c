@@ -1028,6 +1028,14 @@ VOID BAOriSessionSetupTimeout(
 
 	pAd = pBAEntry->pAdapter;
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		/* Do nothing if monitor mode is on*/
+		if (MONITOR_ON(pAd))
+			return;
+	}
+#endif /* CONFIG_STA_SUPPORT */
     
 #ifdef CONFIG_ATE
 	/* Nothing to do in ATE mode. */
@@ -1041,6 +1049,19 @@ VOID BAOriSessionSetupTimeout(
 	{
 		MLME_ADDBA_REQ_STRUCT AddbaReq;  
 
+#ifdef CONFIG_STA_SUPPORT
+		IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+		{
+			if (INFRA_ON(pAd) && 
+				RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS) &&
+				(OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_MEDIA_STATE_CONNECTED)))
+			{
+				/* In scan progress and have no chance to send out, just re-schedule to another time period */
+				RTMPSetTimer(&pBAEntry->ORIBATimer, ORI_BA_SESSION_TIMEOUT);
+				return;
+			}
+		}
+#endif /* CONFIG_STA_SUPPORT */
 
 		NdisZeroMemory(&AddbaReq, sizeof(AddbaReq));
 		COPY_MAC_ADDR(AddbaReq.pAddr, pEntry->Addr);
@@ -1167,6 +1188,17 @@ VOID PeerAddBAReqAction(RTMP_ADAPTER *pAd, MLME_QUEUE_ELEM *Elem)
 #if defined(P2P_SUPPORT) || defined(RT_CFG80211_P2P_SUPPORT)
 	if (pMacEntry)
 	{
+#ifdef CONFIG_STA_SUPPORT
+		if (ADHOC_ON(pAd)
+#ifdef QOS_DLS_SUPPORT
+			|| (IS_ENTRY_DLS(pMacEntry))
+#endif /* QOS_DLS_SUPPORT */
+		)
+		{
+			ActHeaderInit(pAd, &ADDframe.Hdr, pAddr, pAd->StaCfg.wdev.if_addr, pAd->CommonCfg.Bssid);
+		}
+		else
+#endif /* CONFIG_STA_SUPPORT */
 		{
 			ActHeaderInit(pAd, &ADDframe.Hdr, pAddr, pMacEntry->wdev->if_addr, pMacEntry->wdev->bssid);
 		}
@@ -1202,6 +1234,19 @@ VOID PeerAddBAReqAction(RTMP_ADAPTER *pAd, MLME_QUEUE_ELEM *Elem)
 		}
 	}
 #endif /* CONFIG_AP_SUPPORT */
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		if (ADHOC_ON(pAd)
+#ifdef QOS_DLS_SUPPORT
+			|| (IS_ENTRY_DLS(pMacEntry))
+#endif /* QOS_DLS_SUPPORT */
+			)
+			ActHeaderInit(pAd, &ADDframe.Hdr, pAddr, pAd->StaCfg.wdev.if_addr, pAd->CommonCfg.Bssid);
+		else
+			ActHeaderInit(pAd, &ADDframe.Hdr, pAd->CommonCfg.Bssid, pAd->StaCfg.wdev.if_addr, pAddr);
+	}
+#endif /* CONFIG_STA_SUPPORT */
 #endif /* P2P_SUPPORT */
 	ADDframe.Category = CATEGORY_BA;
 	ADDframe.Action = ADDBA_RESP;
@@ -1209,17 +1254,8 @@ VOID PeerAddBAReqAction(RTMP_ADAPTER *pAd, MLME_QUEUE_ELEM *Elem)
 	/* What is the Status code??  need to check.*/
 	ADDframe.StatusCode = Status;
 	ADDframe.BaParm.BAPolicy = IMMED_BA;
-#ifdef DOT11_VHT_AC
-	if (pMacEntry && IS_VHT_STA(pMacEntry) && (Status == 0))
-		ADDframe.BaParm.AMSDUSupported = pAddreqFrame->BaParm.AMSDUSupported;
-	else
-#endif /* DOT11_VHT_AC */
 		ADDframe.BaParm.AMSDUSupported = 0;
 
-#ifdef WFA_VHT_PF
-	if (pAd->CommonCfg.DesiredHtPhy.AmsduEnable)
-		ADDframe.BaParm.AMSDUSupported = 1;
-#endif /* WFA_VHT_PF */
 	ADDframe.BaParm.TID = pAddreqFrame->BaParm.TID;
 	ADDframe.BaParm.BufSize = min(((UCHAR)pAddreqFrame->BaParm.BufSize), (UCHAR)pAd->CommonCfg.BACapability.field.RxBAWinLimit);
 	if (ADDframe.BaParm.BufSize == 0) {
@@ -1287,6 +1323,9 @@ VOID PeerAddBARspAction(RTMP_ADAPTER *pAd, MLME_QUEUE_ELEM *Elem)
 		}
 		/* Rcv Decline StatusCode*/
 		if ((pFrame->StatusCode == 37) 
+#ifdef CONFIG_STA_SUPPORT            
+            || ((pAd->OpMode == OPMODE_STA) && STA_TGN_WIFI_ON(pAd) && (pFrame->StatusCode != 0))
+#endif /* CONFIG_STA_SUPPORT */            
             ) 
 		{
 			pAd->MacTab.Content[Elem->Wcid].BADeclineBitmap |= 1<<pFrame->BaParm.TID;
@@ -1504,7 +1543,7 @@ VOID SendBeaconRequest(RTMP_ADAPTER *pAd, UCHAR Wcid)
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR,("Radio - SendBeaconRequest() allocate memory failed \n"));
 		return;
 	}
-	apidx = pAd->MacTab.Content[Wcid].apidx;
+	apidx = pAd->MacTab.Content[Wcid].func_tb_idx;
 	ActHeaderInit(pAd, &Frame.Hdr, pAd->MacTab.Content[Wcid].Addr, pAd->ApCfg.MBSSID[apidx].wdev.if_addr, pAd->ApCfg.MBSSID[apidx].wdev.bssid);
 
 	Frame.Category = CATEGORY_RM;
@@ -1590,6 +1629,8 @@ void convert_reordering_packet_to_preAMSDU_or_802_3_packet(
 		}
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+#endif /* CONFIG_STA_SUPPORT */
 		{
 			data_p = OS_PKT_HEAD_BUF_EXTEND(pRxPkt, LENGTH_802_3+VLAN_Size);
 			RT_VLAN_8023_HEADER_COPY(pAd, VLAN_VID, VLAN_Priority,

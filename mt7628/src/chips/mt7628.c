@@ -62,7 +62,7 @@ static void mt7628_switch_channel(RTMP_ADAPTER *pAd, UCHAR channel, BOOLEAN scan
 	pAd->LatchRfRegs.Channel = channel;
 
 
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF,
+	MTWF_LOG(DBG_CAT_ALL, DBG_CAT_HW, DBG_LVL_TRACE,
 			("%s(): Switch to Ch#%d(%dT%dR), BBP_BW=%d\n",
 			__FUNCTION__,
 			channel,
@@ -723,6 +723,15 @@ static void mt7628_antenna_default_reset(
 	pAntenna->field.RxPath = 2;
 }
 
+#ifdef CONFIG_STA_SUPPORT
+static VOID mt7628_init_dev_nick_name(RTMP_ADAPTER *ad)
+{
+#ifdef RTMP_MAC_PCI
+	if (IS_MT7628(ad))
+		snprintf((RTMP_STRING *) ad->nickname, sizeof(ad->nickname), "mt7628_sta");
+#endif
+}
+#endif /* CONFIG_STA_SUPPORT */
 
 static inline VOID bufferModeFieldSet(RTMP_ADAPTER *pAd,EXT_CMD_EFUSE_BUFFER_MODE_T *pCmd,UINT16 addr)
 {
@@ -1042,10 +1051,16 @@ static const RTMP_CHIP_OP MT7628_ChipOp = {
 	.AsicMacInit = mt7628_init_mac_cr,
 	.AsicAntennaDefaultReset = mt7628_antenna_default_reset,
 	.ChipAGCInit = NULL,
+#ifdef CONFIG_STA_SUPPORT
+	.ChipAGCAdjust = NULL,
+#endif
 	.AsicRfTurnOn = NULL,
 	.AsicHaltAction = NULL,
 	.AsicRfTurnOff = NULL,
 	.AsicReverseRfFromSleepMode = NULL,
+#ifdef CONFIG_STA_SUPPORT
+	.NetDevNickNameInit = mt7628_init_dev_nick_name,
+#endif
 #ifdef CARRIER_DETECTION_SUPPORT
 	.ToneRadarProgram = ToneRadarProgram_v2,
 #endif
@@ -1062,6 +1077,7 @@ static const RTMP_CHIP_OP MT7628_ChipOp = {
 #endif /* CAL_FREE_IC_SUPPORT */
 	.show_pwr_info = mt7628_show_pwr_info,
 	.bufferModeEfuseFill =mt7628_bufferModeEfuseFill,
+	.ChipSetEDCCA = mt7628_set_ed_cca,
 };
 
 
@@ -1129,4 +1145,48 @@ VOID mt7628_init(RTMP_ADAPTER *pAd)
 
 	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("<--%s()\n", __FUNCTION__));
 }
+
+
+void mt7628_set_ed_cca(RTMP_ADAPTER *pAd, BOOLEAN enable)
+{
+	
+	UINT32 macVal = 0;	
+	UINT32 NBIDmacVal = 0;
+	if (enable)
+	{
+		macVal = 0xD7E87D10;  //EDCCA ON  //d7e87d10			
+		RTMP_IO_WRITE32(pAd, WF_PHY_BASE + 0x0618, macVal);
+		
+		DBGPRINT(RT_DEBUG_ERROR, ("%s: TURN ON EDCCA mac 0x10618 = 0x%x\n", __FUNCTION__, macVal));
+	}
+	else
+	{
+		macVal = 0xD7083F0F;  //EDCCA OFF //d7083f0f		
+		RTMP_IO_WRITE32(pAd, WF_PHY_BASE + 0x0618, macVal);
+		
+		DBGPRINT(RT_DEBUG_ERROR, ("%s: TURN OFF EDCCA  mac 0x10618 = 0x%x\n", __FUNCTION__, macVal));
+	}
+	
+	if (strncmp(pAd->CommonCfg.CountryCode, "JP", 2) == 0)
+	{
+		/* disable NBID for JAPAN carrier sense test mac, 0610[24]=0 [31]=0 */		
+		RTMP_IO_READ32(pAd, WF_PHY_BASE + 0x0610, &NBIDmacVal);
+		
+		DBGPRINT(RT_DEBUG_ERROR, ("%s: pAd->CommonCfg.CountryCode = %s \n", __FUNCTION__, pAd->CommonCfg.CountryCode));
+		NBIDmacVal &= ~(1<<24); 
+		NBIDmacVal &= ~(1<<31); 
+		RTMP_IO_WRITE32(pAd, WF_PHY_BASE + 0x0610, NBIDmacVal);
+		DBGPRINT(RT_DEBUG_ERROR, ("%s: TURN OFF NBID mac 0x10610 = 0x%x\n", __FUNCTION__, NBIDmacVal));
+	}
+	else
+	{
+		RTMP_IO_READ32(pAd, WF_PHY_BASE + 0x0610, &NBIDmacVal);		
+		NBIDmacVal |= (1<<24); 
+		NBIDmacVal |= (1<<31); 
+		RTMP_IO_WRITE32(pAd, WF_PHY_BASE + 0x0610, NBIDmacVal);		
+	}
+			
+}
+
+
 

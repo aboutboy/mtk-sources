@@ -71,6 +71,7 @@ static VOID DumpBcnQMessage(RTMP_ADAPTER *pAd, INT apidx)
 	}
 	if (DBG_LVL_ERROR <= RTDebugLevel) {
 		show_trinfo_proc(pAd, NULL);
+		SetTxRxCr_Proc(pAd, "1");
 	}
 #endif /*DBG*/
 }
@@ -85,6 +86,10 @@ VOID APCheckBcnQHandler(RTMP_ADAPTER *pAd, INT apidx, BOOLEAN *is_pretbtt_int)
 
 	UINT32   Lowpart, Highpart;
 	UINT32   int_delta;
+#ifdef DMA_RESET_SUPPORT
+	UINT32 bcn_didx_val;
+	UINT32 	 mac_val;
+#endif
 
     if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS))
         return;
@@ -94,14 +99,61 @@ VOID APCheckBcnQHandler(RTMP_ADAPTER *pAd, INT apidx, BOOLEAN *is_pretbtt_int)
 
 	if (pMbss->bcn_buf.bcn_state < BCN_TX_DMA_DONE) {
 		if (apidx == 0) {
+#ifdef DMA_RESET_SUPPORT
+			if (pAd->bcn_reset_en && pAd->pse_reset_flag)
+			{
+				check_point_num=0;
+				return;
+			}
+#endif /* DMA_RESET_SUPPORT */			
 			check_point_num++;
             if (check_point_num > 3) {
                 DBGPRINT(RT_DEBUG_ERROR, ("%s()=>BSS%d:BcnPkt not idle(%d) - %d!, \n",
                                 __FUNCTION__, apidx, pMbss->bcn_buf.bcn_state, check_point_num));
             }
+#ifdef DMA_RESET_SUPPORT
+				if ((pAd->bcn_reset_en) && (check_point_num > 4) && (pAd->bcn_not_idle_tx_dma_busy))
+				{
+					RTMP_IO_READ32(pAd, MT_WPDMA_GLO_CFG, &mac_val);
+					RTMP_IO_READ32(pAd, pAd->BcnRing.hw_didx_addr, &bcn_didx_val);
+
+					if ((mac_val & 0x2) && (bcn_didx_val == pAd->bcn_didx_val))
+					{					
+						pAd->dma_force_reset_count++;
+						pAd->bcn_not_idle_tx_dma_busy=0;
+						pAd->pse_reset_flag=TRUE;
+						pAd->bcn_didx_val = 255;									
+						check_point_num=0;
+					} 
+					else
+					{
+						pAd->bcn_not_idle_tx_dma_busy=0;
+						pAd->bcn_didx_val = 255;
+					}				
+				}	
+#endif /* DMA_RESET_SUPPORT */
+				
 			if (check_point_num > 10) {
 				DumpBcnQMessage(pAd, apidx);
+#ifdef DMA_RESET_SUPPORT
+			if (pAd->bcn_reset_en)
+			{
+				RTMP_IO_READ32(pAd, MT_WPDMA_GLO_CFG, &mac_val);
+				if (mac_val & 0x2)
+				{
+					pAd->bcn_not_idle_tx_dma_busy=1;
+					RTMP_IO_READ32(pAd, pAd->BcnRing.hw_didx_addr, &pAd->bcn_didx_val);
+				} 
+				else
+				{
+					pAd->bcn_not_idle_tx_dma_busy=0;
+                    			pAd->bcn_didx_val = 255;
+				}
+			}
+#endif	/* DMA_RESET_SUPPORT */				
 				check_point_num = 0;
+			}else if (check_point_num == 7) {
+				SetTxRxCr_Proc(pAd, "0");
 			}
             else if (check_point_num % 5 == 4) {
                 if (MTK_REV_GTE(pAd, MT7628, MT7628E2)) {
@@ -134,6 +186,10 @@ VOID APCheckBcnQHandler(RTMP_ADAPTER *pAd, INT apidx, BOOLEAN *is_pretbtt_int)
 		return;
 	} else if (apidx == 0) {
 		check_point_num = 0;
+#ifdef DMA_RESET_SUPPORT
+		pAd->bcn_not_idle_tx_dma_busy=0;
+		pAd->bcn_didx_val = 255;
+#endif		
 	}
 
     //if (MTK_REV_GTE(pAd, MT7628, MT7628E2))
@@ -187,6 +243,9 @@ VOID APCheckBcnQHandler(RTMP_ADAPTER *pAd, INT apidx, BOOLEAN *is_pretbtt_int)
 		pMbss->bcn_recovery_num++;
 		*is_pretbtt_int = TRUE;
 	}
+	else if (pMbss->bcn_not_idle_time % 10 ==  7) {
+		SetTxRxCr_Proc(pAd, "0");
+	}	
 	else {
 		pMbss->bcn_not_idle_time++;
 		*is_pretbtt_int = FALSE;
@@ -327,6 +386,16 @@ VOID MTPciPollTxRxEmpty(RTMP_ADAPTER *pAd)
 {
 	UINT32 Loop, Value;
 	UINT32 IdleTimes = 0;
+	UINT32 IdleTimesThreshold = 5000;
+	UINT32 PollLoopTimesThreshold = 20000;
+
+#ifdef CONFIG_ATE
+	if (ATE_ON(pAd))
+	{
+		IdleTimesThreshold = 10;
+		PollLoopTimesThreshold = 2000;
+	}
+#endif /* CONFIG_ATE */
 	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("%s\n", __FUNCTION__));
 
 	RtmpOsMsDelay(100);
@@ -335,7 +404,7 @@ VOID MTPciPollTxRxEmpty(RTMP_ADAPTER *pAd)
 	RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_POLL_IDLE);
 
 	/* Poll Tx until empty */
-	for (Loop = 0; Loop < 20000; Loop++)
+	for (Loop = 0; Loop < PollLoopTimesThreshold; Loop++)
 	{
 		if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST))
 			return;
@@ -348,11 +417,11 @@ VOID MTPciPollTxRxEmpty(RTMP_ADAPTER *pAd)
 			RtmpusecDelay(50);
 		}
 
-		if (IdleTimes > 5000)
+		if (IdleTimes > IdleTimesThreshold)
 			break;
 	}
 
-	if (Loop >= 20000)
+	if (Loop >= PollLoopTimesThreshold)
 	{
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s: TX DMA Busy!! WPDMA_GLO_CFG_STRUC = %d\n",
 										__FUNCTION__, Value));
@@ -361,7 +430,7 @@ VOID MTPciPollTxRxEmpty(RTMP_ADAPTER *pAd)
 	IdleTimes = 0;
 
 	/*  Poll Rx to empty */
-	for (Loop = 0; Loop < 20000; Loop++)
+	for (Loop = 0; Loop < PollLoopTimesThreshold; Loop++)
 	{
 		if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST))
 			return;
@@ -373,11 +442,11 @@ VOID MTPciPollTxRxEmpty(RTMP_ADAPTER *pAd)
 			RtmpusecDelay(50);
 		}
 
-		if (IdleTimes > 5000)
+		if (IdleTimes > IdleTimesThreshold)
 			break;
 	}
 
-	if (Loop >= 20000)
+	if (Loop >= PollLoopTimesThreshold)
 	{
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s: RX DMA Busy!! WPDMA_GLO_CFG_STRUC = %d\n",
 										__FUNCTION__, Value));
@@ -858,25 +927,125 @@ BOOLEAN MonitorRxPse(RTMP_ADAPTER *pAd)
 }
 
 
+#ifdef RTMP_PCI_SUPPORT
+#if defined(MT7603) || defined(MT7628)
+BOOLEAN MonitorTxBcnRxPse(RTMP_ADAPTER *pAd)
+{
+  UINT32 tdidx[4],tcidx[4],rdidx0,rcidx0;
+  static UINT32 pre_tdidx[4]={0xffff,0xffff,0xffff,0xffff};
+  static UINT32 pre_rdidx0=0xffff;
+  BOOLEAN condition_1=FALSE,condition_2=FALSE;
+  static UINT8 TxBcnRxPseCheckTimes = 0;
+  UINT8 idx;
+
+  
+	for(idx=0; idx<4; idx++)
+	{
+		UINT32 reserve_pages,HIF_Value;
+    
+    RTMP_IO_READ32(pAd, pAd->TxRing[idx].hw_didx_addr, &tdidx[idx]);
+	RTMP_IO_READ32(pAd, pAd->TxRing[idx].hw_cidx_addr, &tcidx[idx]);
+	
+    if((tdidx[idx]!= tcidx[idx])&&(condition_1 == FALSE)) 
+    {
+      HW_IO_READ32(pAd, FC_RP0P1, &HIF_Value);
+      reserve_pages = GET_RSRV_CNT_P0(HIF_Value);
+      
+      if((tdidx[idx] == pre_tdidx[idx]) && 
+         (reserve_pages > 0xA0)) 
+      {
+        condition_1 = TRUE;
+      }
+    }
+    pre_tdidx[idx] = tdidx[idx];
+  }
+
+  
+  if(condition_1 == TRUE)
+  {
+
+    RTMP_IO_READ32(pAd, pAd->RxRing[0].hw_didx_addr, &rdidx0);
+	RTMP_IO_READ32(pAd, pAd->RxRing[0].hw_cidx_addr, &rcidx0);	
+
+	
+    if((rdidx0 != rcidx0)&&(rdidx0 == pre_rdidx0))
+    {
+      UINT32 used_pages, RxData_Value;
+      
+      HW_IO_READ32(pAd, FC_SP2Q0Q1, &RxData_Value); 
+      used_pages = GET_SRC_CNT_P2_RQ0(RxData_Value);
+      
+      if(used_pages > 0x20) 
+      {
+        condition_2 = TRUE;
+        TxBcnRxPseCheckTimes++;
+      }
+      if(TxBcnRxPseCheckTimes >= 10) 
+      { 
+        TxBcnRxPseCheckTimes = 0;
+		pre_rdidx0 = 0xffff;
+		for(idx=0; idx<4; idx++)
+			pre_tdidx[idx] = 0xffff;
+        return TRUE;
+      }
+    }
+	pre_rdidx0 = rdidx0;
+  }
+
+  if ((condition_1 != TRUE) || (condition_2 != TRUE))
+    TxBcnRxPseCheckTimes = 0;
+  
+  return FALSE;
+}
+#endif /* RTMP_PCI_SUPPORT */
+#endif /* MT7603 || MT7628 */
+
+
 VOID PSEWatchDog(RTMP_ADAPTER *pAd)
 {
 	BOOLEAN NoDataIn = FALSE;
 
 	NoDataIn = MonitorRxPse(pAd);
 
-	if (NoDataIn)
+	if (((NoDataIn)
+#ifdef DMA_RESET_SUPPORT		
+		|| ((pAd->bcn_reset_en) && (pAd->pse_reset_flag))
+#endif		
+		)
+		&& (pAd->pse_reset_exclude_flag == FALSE))
 	{
-		DBGPRINT(RT_DEBUG_OFF, ("PSE Reset\n"));
+		DBGPRINT(RT_DEBUG_OFF, ("PSE Reset:MonitorRxPse\n"));
 		pAd->PSEResetCount++;
 		goto reset;
 	}
+
+#ifdef RTMP_PCI_SUPPORT
+#if defined(MT7603) || defined(MT7628)
+	NoDataIn = MonitorTxBcnRxPse(pAd);
+	if ((NoDataIn) 
+		&& (pAd->pse_reset_exclude_flag == FALSE))
+	{
+		DBGPRINT(RT_DEBUG_OFF, ("PSE Reset:MonitorTxBcnRxPse\n"));
+		pAd->PSEResetCount++;
+		goto reset;
+	}
+#endif /* RTMP_PCI_SUPPORT */
+#endif /* MT7603 || MT7628 */
 
 	return;
 
 reset:
 	;
 #ifdef RTMP_PCI_SUPPORT
+#ifdef DMA_RESET_SUPPORT	
+	pAd->pse_reset_flag=TRUE;
+#endif
+	pAd->pse_reset_exclude_flag = TRUE;	
 	PSEResetAndRecovery(pAd);
+	pAd->pse_reset_exclude_flag = FALSE;
+#ifdef DMA_RESET_SUPPORT	
+	pAd->pse_reset_flag=FALSE;
+#endif
 #endif
 }
 

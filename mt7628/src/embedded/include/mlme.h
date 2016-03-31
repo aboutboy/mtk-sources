@@ -32,6 +32,8 @@
 
 #include "rtmp_dot11.h"
 
+#ifdef CONFIG_STA_SUPPORT
+#endif /* CONFIG_STA_SUPPORT */
 
 
 /* maximum supported capability information - */
@@ -113,9 +115,14 @@
 #define BSS_NOT_FOUND                    0xFFFFFFFF
 
 #ifdef CONFIG_AP_SUPPORT
+#ifndef CONFIG_STA_SUPPORT
 #define MAX_LEN_OF_MLME_QUEUE            20 /*10 */
+#endif
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+#define MAX_LEN_OF_MLME_QUEUE            40 /*10 */
+#endif /* CONFIG_STA_SUPPORT */
 
 enum SCAN_MODE{
 	/* Active scan, send probe request, and wait beacon and probe response */
@@ -328,13 +335,13 @@ typedef struct GNU_PACKED _EXT_CAP_INFO_ELEMENT{
 	UINT32 rsv63:1;
 	UINT32 operating_mode_notification:1;
 	UINT32 tdls_wider_bw:1;
-	UINT32 rsv49:13;
+	UINT32 rsv49:12;
 	UINT32 utf8_ssid:1;
 	UINT32 rsv47:1;
 	UINT32 wnm_notification:1;
 	UINT32 uapsd_coex:1;
 	UINT32 id_location:1;
-	UINT32 service_interval_granularity:2;
+	UINT32 service_interval_granularity:3;
 	UINT32 reject_unadmitted_frame:1;
 	UINT32 TDLSChSwitchProhibited:1; /* bit39: TDLS Channel Switching Prohibited */
 	UINT32 TDLSProhibited:1; /* bit38: TDLS Prohibited */
@@ -354,13 +361,13 @@ typedef struct GNU_PACKED _EXT_CAP_INFO_ELEMENT{
 	UINT32 TDLSProhibited:1; /* bit38: TDLS Prohibited */
 	UINT32 TDLSChSwitchProhibited:1; /* bit39: TDLS Channel Switching Prohibited */
 	UINT32 reject_unadmitted_frame:1;
-	UINT32 service_interval_granularity:2;
+	UINT32 service_interval_granularity:3;
 	UINT32 id_location:1;
 	UINT32 uapsd_coex:1;
 	UINT32 wnm_notification:1;
 	UINT32 rsv47:1;
 	UINT32 utf8_ssid:1;
-	UINT32 rsv49:13;
+	UINT32 rsv49:12;
 	UINT32 tdls_wider_bw:1;
 	UINT32 operating_mode_notification:1;
 	UINT32 rsv63:1;
@@ -405,30 +412,9 @@ typedef struct _RT_PHY_INFO{
 	BOOLEAN		bPreNHt;	 /* If we should use ht rate. */
 	/*Substract from HT Capability IE */
 	UCHAR		MCSSet[16];
-#ifdef DOT11_VHT_AC
-	BOOLEAN 	bVhtEnable;
-	UCHAR 		vht_bw;
-	VHT_MCS_SET vht_mcs_set;
-#endif /* DOT11_VHT_AC */
 } RT_PHY_INFO;
 
 
-#ifdef DOT11_VHT_AC
-typedef struct _RT_VHT_CAP{
-	UINT32 vht_bw:2;
-	UINT32 vht_txstbc:1;
-	UINT32 vht_rxstbc:3;
-	UINT32 sgi_80m:1;
-	UINT32 vht_htc:1;
-
-	UINT32 vht_mcs_ss1:2;
-	UINT32 vht_mcs_ss2:2;
-	UINT32 vht_rx_rate:2;
-	UINT32 vht_tx_rate:2;
-
-	UINT32 rsv:16;
-}RT_VHT_CAP;
-#endif /* DOT11_VHT_AC */
 
 
 /*
@@ -885,6 +871,12 @@ typedef struct {
     UCHAR       EdcaUpdateCount;
 } QOS_CAPABILITY_PARM, *PQOS_CAPABILITY_PARM;
 
+#ifdef CONFIG_STA_SUPPORT
+typedef struct {
+    UCHAR       IELen;
+    UCHAR       IE[MAX_CUSTOM_LEN];
+} WPA_IE_;
+#endif /* CONFIG_STA_SUPPORT */
 
 
 typedef struct _BSS_ENTRY{
@@ -914,12 +906,6 @@ typedef struct _BSS_ENTRY{
 	CHAR	AvgRssi;
 #endif /* CFG80211_SCAN_SIGNAL_AVG */	
 
-#ifdef DOT11_VHT_AC
-	UCHAR vht_cap_len;
-	UCHAR vht_op_len;
-	VHT_CAP_IE vht_cap_ie;
-	VHT_OP_IE vht_op_ie;
-#endif /* DOT11_VHT_AC */
 
 
 	CHAR MinSNR;	
@@ -980,6 +966,19 @@ typedef struct _BSS_ENTRY{
 #endif /* WSC_INCLUDED */
 
 
+#ifdef CONFIG_STA_SUPPORT
+	WPA_IE_ WpaIE;
+	WPA_IE_ RsnIE;
+	WPA_IE_ WpsIE;
+#ifdef WAPI_SUPPORT
+	WPA_IE_ WapiIE;
+#endif /* WAPI_SUPPORT */
+
+#ifdef EXT_BUILD_CHANNEL_LIST
+	UCHAR CountryString[3];
+	BOOLEAN bHasCountryIE;
+#endif /* EXT_BUILD_CHANNEL_LIST */
+#endif /* CONFIG_STA_SUPPORT */
 
 } BSS_ENTRY;
 
@@ -1084,13 +1083,6 @@ typedef struct _MLME_AUX {
 	UCHAR			NewExtChannelOffset;
 	/*RT_HT_CAPABILITY	SupportedHtPhy; */
 
-#ifdef DOT11_VHT_AC
-	UCHAR vht_cap_len;
-	UCHAR vht_op_len;
-	VHT_CAP_IE vht_cap;
-	VHT_OP_IE vht_op;
-	UCHAR vht_cent_ch;
-#endif /* DOT11_VHT_AC */
 
     /* new for QOS */
     QOS_CAPABILITY_PARM APQosCapability;    /* QOS capability of the current associated AP */
@@ -1119,6 +1111,8 @@ typedef struct _MLME_AUX {
 #endif /* APCLI_SUPPORT */
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+#endif /* CONFIG_STA_SUPPORT */
 
 } MLME_AUX, *PMLME_AUX;
 
@@ -1149,11 +1143,6 @@ typedef struct _MLME_AUX {
 }
 #endif /* DOT11_N_SUPPORT */
 
-#ifdef DOT11_VHT_AC
-#define COPY_VHT_FROM_MLME_AUX_TO_ACTIVE_CFG(_pAd)                                 \
-{                                                                                       \
-}
-#endif /* DOT11_VHT_AC */
 
 
 typedef struct _MLME_ADDBA_REQ_STRUCT{
@@ -1219,6 +1208,28 @@ typedef struct _MLME_START_REQ_STRUCT {
     UCHAR       SsidLen;
 } MLME_START_REQ_STRUCT, *PMLME_START_REQ_STRUCT;
 
+#ifdef CONFIG_STA_SUPPORT
+#ifdef QOS_DLS_SUPPORT
+/* structure for DLS */
+typedef struct _RT_802_11_DLS {
+	USHORT						TimeOut;		/* Use to time out while slience, unit: second , set by UI */
+	USHORT						CountDownTimer;	/* Use to time out while slience,unit: second , used by driver only */
+	NDIS_802_11_MAC_ADDRESS		MacAddr;		/* set by UI */
+	UCHAR						Status;			/* 0: none , 1: wait STAkey, 2: finish DLS setup , set by driver only */
+	BOOLEAN						Valid;			/* 1: valid , 0: invalid , set by UI, use to setup or tear down DLS link */
+	RALINK_TIMER_STRUCT			Timer;			/* Use to time out while handshake */
+	USHORT						Sequence;
+	USHORT						MacTabMatchWCID;	/* ASIC */
+	BOOLEAN						bHTCap;
+	PVOID						pAd;
+} RT_802_11_DLS, *PRT_802_11_DLS;
+
+typedef struct _MLME_DLS_REQ_STRUCT {
+    PRT_802_11_DLS	pDLS;
+    USHORT			Reason;
+} MLME_DLS_REQ_STRUCT, *PMLME_DLS_REQ_STRUCT;
+#endif /* QOS_DLS_SUPPORT */
+#endif /* CONFIG_STA_SUPPORT */
 
 typedef struct GNU_PACKED _EID_STRUCT{
     UCHAR   Eid;
@@ -1279,14 +1290,6 @@ typedef struct _IE_lists {
 	EXT_CAP_INFO_ELEMENT ExtCapInfo;
 	UCHAR ht_cap_len;
 	HT_CAPABILITY_IE HTCapability;
-#ifdef DOT11_VHT_AC
-	VHT_CAP_IE vht_cap;
-	VHT_OP_IE vht_op;
-	UCHAR vht_cap_len;
-	UCHAR vht_op_len;
-	UCHAR operating_mode_len;
-	OPERATING_MODE operating_mode;
-#endif /* DOT11_VHT_AC */
 }IE_LISTS;
 
 
@@ -1325,12 +1328,12 @@ typedef struct _bcn_ie_list {
 	UCHAR AddHtInfoLen;
 	ADD_HT_INFO_IE AddHtInfo;
 	UCHAR NewExtChannelOffset;
-#ifdef DOT11_VHT_AC
-	VHT_CAP_IE vht_cap_ie;
-	VHT_OP_IE vht_op_ie;
-	UCHAR vht_cap_len;
-	UCHAR vht_op_len;
-#endif /* DOT11_VHT_AC */
+#ifdef CONFIG_STA_SUPPORT
+#ifdef NATIVE_WPA_SUPPLICANT_SUPPORT
+	// TODO: shiang-usw, is the size large enough?
+	UCHAR selReg;
+#endif /* NATIVE_WPA_SUPPLICANT_SUPPORT */
+#endif /* CONFIG_STA_SUPPORT */
 }BCN_IE_LIST;
 
 VOID MlmeHandler(struct _RTMP_ADAPTER *pAd);

@@ -141,6 +141,10 @@ VOID APPeerDlsReqAction(
 	if(pOutBuffer == NULL)
 		return;
 
+#ifdef CONFIG_HOTSPOT
+	if (pAd->ApCfg.MBSSID[pSAEntry->apidx].HotSpotCtrl.L2Filter)
+		Status = MLME_DLS_NOT_ALLOW_IN_QBSS;
+#endif
 
 	/*
 		If status is successful, forward DLS-Request frame to destination

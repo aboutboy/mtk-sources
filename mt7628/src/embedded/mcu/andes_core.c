@@ -31,7 +31,10 @@ struct cmd_msg *AndesAllocCmdMsg(RTMP_ADAPTER *ad, unsigned int length)
 		goto error0;
 	}
 
-	OS_PKT_RESERVE(net_pkt, cap->cmd_header_len);
+	if ((ctl->Stage == FW_NO_INIT) || (ctl->Stage == FW_DOWNLOAD) || (ctl->Stage == ROM_PATCH_DOWNLOAD))
+		OS_PKT_RESERVE(net_pkt, cap->cmd_header_len);
+	else if (ctl->Stage == FW_RUN_TIME)
+		OS_PKT_RESERVE(net_pkt, sizeof(FW_TXD *));
 
 	os_alloc_mem(NULL, (PUCHAR *)&msg, sizeof(*msg));
 
@@ -482,11 +485,7 @@ VOID AndesCleanupCmdMsg(RTMP_ADAPTER *ad, DL_LIST *list)
 static VOID AndesCtrlPciInit(RTMP_ADAPTER *ad)
 {
 	struct MCU_CTRL *ctl = &ad->MCUCtrl;
-	INT32 Ret;
 
-	RTMP_SEM_EVENT_WAIT(&(ad->mcu_atomic), Ret);
-	if(Ret != 0)
-		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR, ("%s:(%d) RTMP_SEM_EVENT_WAIT failed!\n",__FUNCTION__,Ret));
 	RTMP_CLEAR_FLAG(ad, fRTMP_ADAPTER_MCU_SEND_IN_BAND_CMD);
 	ctl->cmd_seq = 0;
 #ifndef WORKQUEUE_BH
@@ -513,7 +512,6 @@ static VOID AndesCtrlPciInit(RTMP_ADAPTER *ad)
 	ctl->free_cmd_msg = 0;
 	OS_SET_BIT(MCU_INIT, &ctl->flags);
 	ctl->ad = ad;
-	RTMP_SEM_EVENT_UP(&(ad->mcu_atomic));
 }
 #endif
 
@@ -547,11 +545,6 @@ VOID AndesCtrlInit(RTMP_ADAPTER *pAd)
 static VOID AndesCtrlPciExit(RTMP_ADAPTER *ad)
 {
 	struct MCU_CTRL *ctl = &ad->MCUCtrl;
-	INT32 Ret;
-
-	RTMP_SEM_EVENT_WAIT(&(ad->mcu_atomic), Ret);
-	if(Ret != 0)
-		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR, ("%s:(%d) RTMP_SEM_EVENT_WAIT failed!\n",__FUNCTION__,Ret));
 	
 	RTMP_CLEAR_FLAG(ad, fRTMP_ADAPTER_MCU_SEND_IN_BAND_CMD);
 	OS_CLEAR_BIT(MCU_INIT, &ctl->flags);
@@ -573,7 +566,6 @@ static VOID AndesCtrlPciExit(RTMP_ADAPTER *ad)
 	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("rx_receive_fail_count = %ld\n", ctl->rx_receive_fail_count));
 	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("alloc_cmd_msg = %ld\n", ctl->alloc_cmd_msg));
 	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("free_cmd_msg = %ld\n", ctl->free_cmd_msg));
-	RTMP_SEM_EVENT_UP(&(ad->mcu_atomic));
 }
 #endif
 
@@ -673,12 +665,11 @@ INT32 AndesSendCmdMsg(PRTMP_ADAPTER ad, struct cmd_msg *msg)
 	{
         if(msg != NULL)
             MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR, ("%s: Command type = %x, Extension command type = %x\n", __FUNCTION__, msg->cmd_type, msg->ext_cmd_type));
-		AndesFreeCmdMsg(msg);
+		AndesForceFreeCmdMsg(msg);
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR, ("BUG: %s is called from invalid context\n", __FUNCTION__));
 		return NDIS_STATUS_FAILURE;
 	}
 
-	RTMP_SEM_EVENT_WAIT(&(ad->mcu_atomic), Ret);
 	if(Ret != 0)
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR, ("%s:(%d) RTMP_SEM_EVENT_WAIT failed!\n",__FUNCTION__,Ret));
 
@@ -694,8 +685,6 @@ INT32 AndesSendCmdMsg(PRTMP_ADAPTER ad, struct cmd_msg *msg)
 			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR, ("%s: Could not send in band command due to fRTMP_ADAPTER_SUSPEND\n", __FUNCTION__));
 
 		AndesForceFreeCmdMsg(msg);
-
-		RTMP_SEM_EVENT_UP(&(ad->mcu_atomic));
 
 		return NDIS_STATUS_FAILURE;
 	}
@@ -742,6 +731,12 @@ retransmit:
 				{
 					MtPsSendToken(ad, msg->wcid);
 				}
+				if ((msg->cmd_type == EXT_CID) &&
+					(msg->ext_cmd_type == EXT_CMD_PWR_SAVING))
+				{
+					CmdPsClearReq(ad, msg->wcid, TRUE);
+				}
+
 			}
 #endif /* MT_PS */
 			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR, ("msg->retransmit_times = %d\n", msg->retransmit_times));
@@ -772,7 +767,6 @@ retransmit:
 	}
 
 bailout:
-	RTMP_SEM_EVENT_UP(&(ad->mcu_atomic));
 
 	return Ret;
 }

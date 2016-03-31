@@ -164,6 +164,27 @@ endif
 #                    $(MT_WIFI_DIR)/common/rrm_sanity.o\
 #                    $(MT_WIFI_DIR)/common/rrm.o
 #endif
+#SNIFFER
+ifeq ($(CONFIG_MT_SNIFFER_SUPPORT),y)
+    EXTRA_CFLAGS += -DCONFIG_SNIFFER_SUPPORT
+
+    spec_objs += $(MT_WIFI_DIR)/sniffer/sniffer_radiotap.o\
+                 $(MT_WIFI_DIR)/sniffer/sniffer_prism.o
+endif
+
+#CFG
+ifeq ($(CONFIG_MT_CFG80211_SUPPORT),y)
+    EXTRA_CFLAGS += -DRT_CFG80211_SUPPORT -DEXT_BUILD_CHANNEL_LIST
+
+    spec_objs += $(MT_WIFI_DIR)/os/linux/cfg80211/cfg80211_scan.o\
+        $(MT_WIFI_DIR)/os/linux/cfg80211/cfg80211_rx.o\
+        $(MT_WIFI_DIR)/os/linux/cfg80211/cfg80211_tx.o\
+        $(MT_WIFI_DIR)/os/linux/cfg80211/cfg80211_inf.o\
+        $(MT_WIFI_DIR)/os/linux/cfg80211/cfg80211_ap.o\
+        $(MT_WIFI_DIR)/os/linux/cfg80211/cfg80211drv.o\
+                $(MT_WIFI_DIR)/os/linux/cfg80211/cfg80211_util.o\
+                $(MT_WIFI_DIR)/os/linux/cfg80211/cfg80211.o
+endif
 
 #
 # Common Feature related files
@@ -253,7 +274,7 @@ ifeq ($(CONFIG_MT_WDS_SUPPORT),y)
 endif
 
 ifeq ($(CONFIG_MT_APCLI_SUPPORT),y)
-    EXTRA_CFLAGS += -DAPCLI_SUPPORT -DMAT_SUPPORT -DAPCLI_CERT_SUPPORT -DAPCLI_AUTO_CONNECT_SUPPORT -DAPCLI_CONNECTION_TRIAL
+    EXTRA_CFLAGS += -DAPCLI_SUPPORT -DMAT_SUPPORT -DAPCLI_CERT_SUPPORT -DAPCLI_AUTO_CONNECT_SUPPORT -DAPCLI_CONNECTION_TRIAL -DMULTI_APCLI_SUPPORT
 
     ap_objs += $(MT_WIFI_DIR)/ap/ap_apcli.o\
             $(MT_WIFI_DIR)/ap/ap_apcli_inf.o\
@@ -333,6 +354,11 @@ ifeq ($(CONFIG_AIRPLAY_SUPPORT),y)
     EXTRA_CFLAGS += -DAIRPLAY_SUPPORT
 endif
   
+ifeq ($(CONFIG_BAND_STEERING),y)
+    EXTRA_CFLAGS += -DBAND_STEERING
+    ap_objs +=  $(MT_WIFI_DIR)/ap/ap_band_steering.o
+endif
+
 ########################################################
 # Linux system related files
 ########################################################

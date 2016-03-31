@@ -1491,8 +1491,9 @@ static INT32 sdio_clean_test_rx_frame(RTMP_ADAPTER *pAd)
 #ifdef RTMP_MAC_PCI
 static INT32 pci_ate_init(RTMP_ADAPTER *pAd){
 	ATE_CTRL *ATECtrl = &pAd->ATECtrl;
-	UINT32 Index;
+	UINT32 Index, i;
 	RTMP_TX_RING *pTxRing = &pAd->TxRing[QID_AC_BE];
+	PNDIS_PACKET pPacket;
 
 	MTWF_LOG(DBG_CAT_TEST,  DBG_SUBCAT_ALL, DBG_LVL_TRACE,("%s, \n", __FUNCTION__));
 	RTMP_IO_READ32(pAd, pTxRing->hw_didx_addr, &pTxRing->TxDmaIdx);
@@ -1500,17 +1501,28 @@ static INT32 pci_ate_init(RTMP_ADAPTER *pAd){
 	pTxRing->TxCpuIdx = pTxRing->TxDmaIdx;
 	RTMP_IO_WRITE32(pAd, pTxRing->hw_cidx_addr, pTxRing->TxCpuIdx);
 
-	for (Index = 0; Index < TX_RING_SIZE; Index++) {
-		if (ATEPayloadAlloc(pAd, Index) != (NDIS_STATUS_SUCCESS)) {
-			ATECtrl->allocated = 0;
-			goto pci_ate_init_err;
+	if (ATECtrl->allocated == 0){
+		for (Index = 0; Index < TX_RING_SIZE; Index++) {
+			if (ATEPayloadAlloc(pAd, Index) != (NDIS_STATUS_SUCCESS)) {
+				ATECtrl->allocated = 0;
+				goto pci_ate_init_err;
+			}
+			pTxRing->Cell[Index].pNdisPacket = ATECtrl->pAtePacket[Index];
 		}
+		ATECtrl->allocated = 1;
 	}
-	ATECtrl->allocated = 1;
 	RTMP_ASIC_INTERRUPT_ENABLE(pAd);
 	return NDIS_STATUS_SUCCESS;
 pci_ate_init_err:
 	MTWF_LOG(DBG_CAT_TEST,  DBG_SUBCAT_ALL, DBG_LVL_ERROR,("%s, Allocate test packet fail at pakcet%d\n", __FUNCTION__, Index));
+	for (i = 0; i < Index; i++) {
+		pPacket = pTxRing->Cell[Index].pNdisPacket;
+		if (pPacket)
+		{
+			RELEASE_NDIS_PACKET(pAd, pPacket, NDIS_STATUS_SUCCESS);
+			pTxRing->Cell[Index].pNdisPacket = NULL;
+		}
+	}
 	return NDIS_STATUS_FAILURE;
 }
 

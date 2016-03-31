@@ -163,34 +163,12 @@ extern UCHAR RateSwitchTableAdapt11N3S[];
 #define PER_THRD_ADJ			1
 
 /* ADAPT_RATE_TABLE - true if pTable is one of the Adaptive Rate Switch tables */
-#ifdef DOT11_VHT_AC
-extern UCHAR RateTableVht1S[];
-extern UCHAR RateTableVht1S_MCS9[];
-extern UCHAR RateTableVht2S[];
-extern UCHAR RateTableVht2S_MCS7[];
-extern UCHAR RateTableVht2S_BW20[];
-extern UCHAR RateTableVht2S_BW40[];
-
-#define ADAPT_RATE_TABLE(pTable)	((pTable)==RateSwitchTableAdapt11B || \
-									(pTable)==RateSwitchTableAdapt11G || \
-									(pTable)==RateSwitchTableAdapt11BG || \
-									(pTable)==RateSwitchTableAdapt11N1S ||\
-									(pTable)==RateSwitchTableAdapt11N2S ||\
-									(pTable)==RateSwitchTableAdapt11N3S ||\
-									(pTable)==RateTableVht1S ||\
-									(pTable)==RateTableVht1S_MCS9 ||\
-									(pTable)==RateTableVht2S || \
-									(pTable)==RateTableVht2S_MCS7 || \
-									(pTable)==RateTableVht2S_BW20 ||\
-									(pTable)==RateTableVht2S_BW40)
-#else
 #define ADAPT_RATE_TABLE(pTable)	((pTable)==RateSwitchTableAdapt11B || \
 									(pTable)==RateSwitchTableAdapt11G || \
 									(pTable)==RateSwitchTableAdapt11BG || \
 									(pTable)==RateSwitchTableAdapt11N1S || \
 									(pTable)==RateSwitchTableAdapt11N2S || \
 									(pTable)==RateSwitchTableAdapt11N3S)
-#endif /* DOT11_VHT_AC */
 #endif /* NEW_RATE_ADAPT_SUPPORT */
 #endif /* DOT11_N_SUPPORT */
 
@@ -244,10 +222,6 @@ VOID RTMPSetSupportMCS(
 	IN UCHAR SupRateLen,
 	IN UCHAR ExtRate[],
 	IN UCHAR ExtRateLen,
-#ifdef DOT11_VHT_AC
-	IN UCHAR vht_cap_len,
-	IN VHT_CAP_IE *vht_cap,
-#endif /* DOT11_VHT_AC */
 	IN HT_CAPABILITY_IE *pHtCapability,
 	IN UCHAR HtCapabilityLen);
 
@@ -322,6 +296,23 @@ INT Set_RateTable_Proc(struct _RTMP_ADAPTER *pAd, RTMP_STRING *arg);
 #ifdef AGS_SUPPORT
 INT Show_AGS_Proc(struct _RTMP_ADAPTER *pAd, RTMP_STRING *arg);
 
+#ifdef CONFIG_STA_SUPPORT
+VOID MlmeDynamicTxRateSwitchingAGS(
+	IN PRTMP_ADAPTER pAd, 
+	IN PMAC_TABLE_ENTRY pEntry, 
+	IN PUCHAR pTable, 
+	IN UCHAR TableSize, 
+	IN PAGS_STATISTICS_INFO pAGSStatisticsInfo,
+	IN UCHAR InitTxRateIdx);
+
+VOID StaQuickResponeForRateUpExecAGS(
+	IN PRTMP_ADAPTER pAd, 
+	IN PMAC_TABLE_ENTRY pEntry, 
+	IN PUCHAR pTable, 
+	IN UCHAR TableSize, 
+	IN PAGS_STATISTICS_INFO pAGSStatisticsInfo,
+	IN UCHAR InitTxRateIdx);
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef CONFIG_AP_SUPPORT
 VOID ApMlmeDynamicTxRateSwitchingAGS(
@@ -344,6 +335,19 @@ VOID APMlmeDynamicTxRateSwitchingAdapt(struct _RTMP_ADAPTER *pAd, UINT idx);
 VOID APQuickResponeForRateUpExecAdapt(struct _RTMP_ADAPTER *pAd, UINT idx);
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+VOID StaQuickResponeForRateUpExecAdapt(
+	IN struct _RTMP_ADAPTER *pAd,
+	IN ULONG i,
+	IN CHAR Rssi);
+
+VOID MlmeDynamicTxRateSwitchingAdapt(
+	IN struct _RTMP_ADAPTER *pAd,
+	IN ULONG i,
+	IN ULONG TxSuccess,
+	IN ULONG TxRetransmit,
+	IN ULONG TxFailCount);
+#endif /* CONFIG_STA_SUPPORT */
 #endif /* NEW_RATE_ADAPT_SUPPORT */
 
 #ifdef CONFIG_AP_SUPPORT
@@ -362,6 +366,21 @@ VOID APMlmeSetTxRate(
 	IN RTMP_RA_LEGACY_TB *pTxRate);
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+VOID MlmeDynamicTxRateSwitching(
+	IN struct _RTMP_ADAPTER *pAd);
+
+VOID StaQuickResponeForRateUpExec(
+	IN PVOID SystemSpecific1, 
+	IN PVOID FunctionContext, 
+	IN PVOID SystemSpecific2, 
+	IN PVOID SystemSpecific3);
+
+VOID MlmeSetTxRate(
+	IN struct _RTMP_ADAPTER *pAd,
+	IN struct _MAC_TABLE_ENTRY *pEntry,
+	IN RTMP_RA_LEGACY_TB *pTxRate);
+#endif /* CONFIG_STA_SUPPORT */
 
 VOID MlmeRAInit(struct _RTMP_ADAPTER *pAd, struct _MAC_TABLE_ENTRY *pEntry);
 VOID MlmeNewTxRate(struct _RTMP_ADAPTER *pAd, struct _MAC_TABLE_ENTRY *pEntry);

@@ -57,6 +57,15 @@ UINT32 MtAsicGetChBusyCnt(RTMP_ADAPTER *pAd, UCHAR ch_idx)
 }
 
 
+#ifdef CONFIG_STA_SUPPORT
+VOID MtAsicUpdateAutoFallBackTable(RTMP_ADAPTER *pAd, UCHAR *pRateTable)
+{
+	// TODO: shiang-7603
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s(%d): Not support for HIF_MT yet!\n",
+				__FUNCTION__, __LINE__));
+	return;
+}
+#endif /* CONFIG_STA_SUPPORT */
 
 
 INT MtAsicSetAutoFallBack(RTMP_ADAPTER *pAd, BOOLEAN enable)
@@ -616,7 +625,9 @@ INT MtAsicSetRxFilter(RTMP_ADAPTER *pAd)
 {
 	UINT32 Value;
 
-	MAC_IO_READ32(pAd, RMAC_RFCR, &Value);
+//	MAC_IO_READ32(pAd, RMAC_RFCR, &Value);
+	#define MT_RXFILTER_NORMAL	 0x001FEF9A
+	Value = MT_RXFILTER_NORMAL;
 	Value &= ~RM_FRAME_REPORT_EN;
 	Value &= ~DROP_NOT_MY_BSSID;
 	Value &= ~DROP_NOT_IN_MC_TABLE;
@@ -629,6 +640,12 @@ INT MtAsicSetRxFilter(RTMP_ADAPTER *pAd)
 	Value &= ~DROP_PROBE_REQ;
 	/* Disable Rx Duplicate Packet Drop filter */
 	Value &= ~DROP_DUPLICATE;
+
+
+#ifdef CONFIG_SNIFFER_SUPPORT
+	if ((MONITOR_ON(pAd)) && pAd->monitor_ctrl.CurrentMonitorMode == MONITOR_MODE_FULL) /* Enable Rx with promiscuous reception */
+		Value = 0x3;
+#endif
 
 
 	MAC_IO_WRITE32(pAd, RMAC_RFCR, Value);
@@ -856,6 +873,34 @@ VOID MtAsicDisableSync(RTMP_ADAPTER *pAd)
 	return;
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+    /* Configure Beacon interval */
+	MAC_IO_WRITE32(pAd, LPON_T0TPCR, value);
+
+	/* Clear Pre-TBTT Trigger, and calcuate next TBTT timer by HW*/
+	//enable PRETBTT0INT_EN, PRETBTT0TIMEUP_EN
+	//and TBTT0PERIODTIMER_EN, TBTT0TIMEUP_EN
+	MAC_IO_WRITE32(pAd, LPON_MPTCR1, 0x99);//TODO: TBTT1, TBTT2.
+
+	/* Enable interrupt */
+	value = 0;
+	MAC_IO_WRITE32(pAd, HWIER3, value);
+
+	/* Config BCN/BMC timoeut, or the normal Tx wil be blocked forever if no beacon frame in Queue */
+	//Value = 0x01800180;
+	//MAC_IO_WRITE32(pAd, LPON_BCNTR, mac_val);
+
+	/* Configure Beacon Queue Operation mode */
+	MAC_IO_READ32(pAd, ARB_SCR, &value);
+	value &= 0xfffffffc;//Clear bit[0:1] for MBSSID 0
+	MAC_IO_WRITE32(pAd, ARB_SCR, value);
+
+	/* Clear Beacon Queue */
+	value = 0x1;
+	MAC_IO_WRITE32(pAd, ARB_BCNQCR1, value);
+
+    return;
+#endif /* CONFIG_STA_SUPPORT */
 
 }
 
@@ -1498,6 +1543,29 @@ VOID MtAsicRssiUpdate(RTMP_ADAPTER *pAd)
 	}
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		pEntry = &pAd->MacTab.Content[BSSID_WCID];
+		Wtbl2RcpiGet(pAd, pEntry->wcid, &wtbl_2_d13);
+
+		Rssi0 = (wtbl_2_d13.field.resp_rcpi_0 - 220) / 2;
+		Rssi1 = (wtbl_2_d13.field.resp_rcpi_1 - 220) / 2;
+		Rssi2 = 0;
+
+		pEntry->RssiSample.AvgRssi[0] = pEntry->RssiSample.LastRssi[0] = Rssi0;
+		pEntry->RssiSample.AvgRssi[1] = pEntry->RssiSample.LastRssi[1] = Rssi1;
+		pEntry->RssiSample.AvgRssi[2] = pEntry->RssiSample.LastRssi[2] = Rssi2;
+
+		pAd->StaCfg.RssiSample.AvgRssi[0] = Rssi0;
+		pAd->StaCfg.RssiSample.AvgRssi[1] = Rssi1;
+		pAd->StaCfg.RssiSample.AvgRssi[2] = Rssi2;
+
+		pAd->StaCfg.RssiSample.LastRssi[0] = Rssi0;
+		pAd->StaCfg.RssiSample.LastRssi[1] = Rssi1;
+		pAd->StaCfg.RssiSample.LastRssi[2] = Rssi2;
+	}
+#endif /* CONFIG_STA_SUPPORT */
 }
 
 
@@ -1981,13 +2049,18 @@ VOID MtAsicUpdateRxWCIDTable(RTMP_ADAPTER *pAd, USHORT WCID, UCHAR *pAddr)
         dw2->field.adm = 0;
         dw2->field.cipher_suit = WTBL_CIPHER_NONE;
     }
+#ifdef MULTI_APCLI_SUPPORT
+    else if (WCID == APCLI_MCAST_WCID(0) || WCID == APCLI_MCAST_WCID(1))
+#else
     else if (WCID == APCLI_MCAST_WCID)
+#endif
     {
         dw0->field.muar_idx = 0xe;
         dw0->field.rv = 1;
         dw2->field.adm = 0;
         dw2->field.cipher_suit = WTBL_CIPHER_NONE;
         dw0->field.rc_a2 = 1;
+	    dw0->field.rc_a1 = 1;
     }
     else {
         mac_entry = &pAd->MacTab.Content[WCID];
@@ -2000,7 +2073,11 @@ VOID MtAsicUpdateRxWCIDTable(RTMP_ADAPTER *pAd, USHORT WCID, UCHAR *pAddr)
                 dw0->field.muar_idx = 0x10 | mac_entry->func_tb_idx;
         }
         else if (IS_ENTRY_APCLI(mac_entry)) {
+#ifdef MULTI_APCLI_SUPPORT
+		dw0->field.muar_idx = (0x1 + mac_entry->func_tb_idx);
+#else /* MULTI_APCLI_SUPPORT */
             dw0->field.muar_idx = 0x1;//Carter, MT_MAC apcli use HWBSSID1 to go.
+#endif /* !MULTI_APCLI_SUPPORT */
             dw0->field.rc_a1 = 1;
         }
         else
@@ -2501,7 +2578,8 @@ VOID CmdProcAddRemoveKey(
 #ifdef RT_BIG_ENDIAN
 				*pKey=SWAP32(*pKey);
 #endif /* RT_BIG_ENDIAN */
-				HW_IO_WRITE32(pAd, addr+index, *(pKey++));
+				HW_IO_WRITE32(pAd, addr+index, *(pKey));
+				pKey++;
 			}
 		}
 
@@ -2512,7 +2590,11 @@ VOID CmdProcAddRemoveKey(
 		dw0->field.wm = 0;
 
 #ifdef APCLI_SUPPORT
+#ifdef MULTI_APCLI_SUPPORT
+        if ((Wcid != APCLI_MCAST_WCID(0)) && (Wcid != APCLI_MCAST_WCID(1)))
+#else /* MULTI_APCLI_SUPPORT */
         if (Wcid != APCLI_MCAST_WCID)
+#endif /* !MULTI_APCLI_SUPPORT */
 #endif /* APCLI_SUPPORT */
         {
 			dw0->field.addr_4 = CmdKey.aucPeerAddr[4];
@@ -2532,7 +2614,12 @@ VOID CmdProcAddRemoveKey(
 				dw0->field.rv = 0;
 				dw0->field.rkv = 0;
 #ifdef APCLI_SUPPORT
-				if (Wcid == APCLI_MCAST_WCID) {
+#ifdef MULTI_APCLI_SUPPORT
+				if ((Wcid == APCLI_MCAST_WCID(0)) || (Wcid == APCLI_MCAST_WCID(1)))
+#else /* MULTI_APCLI_SUPPORT */
+				if (Wcid == APCLI_MCAST_WCID)
+#endif /* !MULTI_APCLI_SUPPORT */
+				{
 					dw0->field.rv = 1;
 					dw0->field.rkv = 1;
 				}
@@ -2552,6 +2639,17 @@ VOID CmdProcAddRemoveKey(
 		else
 #endif /* CONFIG_AP_SUPPORT */
 		{
+#ifdef CONFIG_STA_SUPPORT
+			IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+			{
+				dw0->field.rv = 1;
+				dw0->field.rkv = 1;
+				dw0->field.rc_a1 = 1;
+				dw0->field.rc_id = 1;
+				if (CipherAlg == CIPHER_SMS4)
+					dw2->field.wpi_even = 1;
+				}
+#endif /* CONFIG_STA_SUPPORT */
 		}
 
 		dw2->field.adm = 1;
@@ -4315,6 +4413,10 @@ INT32 MtAsicDMASchedulerInit(RTMP_ADAPTER *pAd, INT mode)
 		}
 		HIF_IO_WRITE32(pAd, MT_PAGE_CNT_7, bcn_restore_val);
 #endif /* CONFIG_AP_SUPPORT */
+#ifdef CONFIG_STA_SUPPORT
+		bcn_restore_val = max_data_page_count;
+		HIF_IO_WRITE32(pAd, MT_PAGE_CNT_7, bcn_restore_val);
+#endif /* CONFIG_STA_SUPPORT */
 		total_restore_val += bcn_restore_val;
 
 		mbc_restore_val = max_bmcast_page_count*MAX_BMCAST_COUNT + max_data_page_count;
@@ -4589,8 +4691,9 @@ VOID MtAsicInitMac(RTMP_ADAPTER *pAd)
 	/* Configure all rx packets to HIF, except WOL2M packet */
 	MAC_IO_READ32(pAd, DMA_RCFR0, &mac_val);
 	mac_val = 0x00010000; // drop duplicate
-	// TODO: shiang-MT7603, remove me after FPGA verification done
 	mac_val |= 0xc0200000; // receive BA/CF_End/Ack/RTS/CTS/CTRL_RSVED
+	if (pAd->rx_pspoll_filter)
+		mac_val |= 0x00000008; //Non-BAR Control frame to MCU
 	MAC_IO_WRITE32(pAd, DMA_RCFR0, mac_val);
 
 	/* Configure Rx Vectors report to HIF */
@@ -4707,6 +4810,63 @@ VOID MtAsicInitMac(RTMP_ADAPTER *pAd)
         MAC_IO_WRITE32(pAd, AGG_SCR, mac_val);
     }
 }
+
+VOID MtAsicSetRxPspollFilter(RTMP_ADAPTER *pAd, CHAR enable)
+{
+	UINT32 mac_val;
+	
+	MAC_IO_READ32(pAd, DMA_RCFR0, &mac_val);
+	if (enable)
+		mac_val |= 0x00000008; //Non-BAR Control frame to MCU
+	else
+		mac_val &= 0xfffffff7; //Non-BAR Control frame to HIF
+		
+	MAC_IO_WRITE32(pAd, DMA_RCFR0, mac_val);
+
+}
+
+#if defined(MT7603) || defined(MT7628)
+INT32 MtAsicGetThemalSensor(RTMP_ADAPTER *pAd, CHAR type)
+{
+	/* 0: get temperature; 1: get adc */
+	/* Get Thermal sensor adc cal value: 0x80022000 bits(8,14)	*/
+	INT32 result=0;
+	
+	if ((type == 0) || (type == 1)) {
+		UINT32 mac_val;
+#ifdef RTMP_PCI_SUPPORT
+		UINT32 mac_restore_val;
+	
+		HIF_IO_READ32(pAd, MCU_PCIE_REMAP_2, &mac_restore_val);
+		HIF_IO_WRITE32(pAd, MCU_PCIE_REMAP_2, MT_TOP_REMAP_ADDR);
+		HIF_IO_READ32(pAd, MT_TOP_REMAP_ADDR_THEMAL, &mac_val);
+		result = (mac_val & 0x00007f00) >> 8;
+		HIF_IO_WRITE32(pAd, MCU_PCIE_REMAP_2, mac_restore_val);
+#endif
+		if (type == 0) {
+			INT32 g_ucThermoRefAdcVal, g_cThermoSlopeVariation, g_cThermoRefOffset;
+	
+			if (pAd->EEPROMImage[TEMPERATURE_SENSOR_CALIBRATION] & 0x80)
+					g_ucThermoRefAdcVal = pAd->EEPROMImage[TEMPERATURE_SENSOR_CALIBRATION] & THERMO_REF_ADC_VARIATION_MASK;
+			else
+					g_ucThermoRefAdcVal = 52;
+	
+			if (pAd->EEPROMImage[THADC_ANALOG_PART] & 0x80) {
+				g_cThermoSlopeVariation = pAd->EEPROMImage[THADC_SLOP] & THERMO_SLOPE_VARIATION_MASK;
+				if (g_cThermoSlopeVariation > 16)
+					g_cThermoSlopeVariation -= 32;
+			} else
+					g_cThermoSlopeVariation = 0;
+				
+			g_cThermoRefOffset = pAd->EEPROMImage[THERMAL_COMPENSATION_OFFSET] + 28;
+			result = (((result - g_ucThermoRefAdcVal) * (56 + g_cThermoSlopeVariation) )/30) + g_cThermoRefOffset;
+		}
+	}
+
+	return result;
+}
+#endif /* MT7603 ||MT7628  */
+
 
 
 

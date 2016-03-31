@@ -46,6 +46,11 @@
 #endif /* WSC_AP_SUPPORT */
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+#ifdef WSC_STA_SUPPORT
+#define STA_WSC_INCLUDED
+#endif /* WSC_STA_SUPPORT */
+#endif /* CONFIG_STA_SUPPORT */
 
 #if defined(WSC_AP_SUPPORT) || defined(WSC_STA_SUPPORT)
 #define WSC_INCLUDED
@@ -65,7 +70,7 @@ typedef VOID	pregs;
 #ifdef RTMP_MAC_PCI
 #define AP_PROFILE_PATH			"/etc/Wireless/RT2860AP/RT2860AP.dat"
 #define AP_RTMP_FIRMWARE_FILE_NAME "/etc/Wireless/RT2860AP/RT2860AP.bin"
-#define AP_DRIVER_VERSION			"4.0.1.1-beta"
+#define AP_DRIVER_VERSION			"4.0.1.3"
 #ifdef MULTIPLE_CARD_SUPPORT
 #define CARD_INFO_PATH			"/etc/Wireless/RT2860AP/RT2860APCard.dat"
 #endif /* MULTIPLE_CARD_SUPPORT */
@@ -77,11 +82,28 @@ typedef VOID	pregs;
 #define RTMP_FIRMWARE_FILE_NAME		"/etc_ro/Wireless/RT2860AP/RT2860AP.bin"
 #define PROFILE_PATH			"/etc/Wireless/RT2860i.dat"
 #define AP_PROFILE_PATH_RBUS		"/etc/Wireless/RT2860/RT2860.dat"
-#define RT2880_AP_DRIVER_VERSION	"4.0.1.1-beta"
+#define RT2880_AP_DRIVER_VERSION	"4.0.1.3"
 #endif /* RTMP_RBUS_SUPPORT */
 #endif /* CONFIG_AP_SUPPORT */
 
 
+#ifdef CONFIG_STA_SUPPORT
+#ifdef RTMP_MAC_PCI
+#define STA_PROFILE_PATH			"/etc/Wireless/RT2860STA/RT2860STA.dat"
+#define STA_DRIVER_VERSION			"4.0.1.3"
+#ifdef MULTIPLE_CARD_SUPPORT
+#define CARD_INFO_PATH			"/etc/Wireless/RT2860STA/RT2860STACard.dat"
+#endif /* MULTIPLE_CARD_SUPPORT */
+#endif /* RTMP_MAC_PCI */
+
+
+#ifdef RTMP_RBUS_SUPPORT
+#define RTMP_FIRMWARE_FILE_NAME		"/etc_ro/Wireless/RT2860STA/RT2860STA.bin"
+#define PROFILE_PATH			"/etc/Wireless/RT2860i.dat"
+#define STA_PROFILE_PATH_RBUS	"/etc/Wireless/RT2860/RT2860.dat"
+#define RT2880_STA_DRIVER_VERSION		"4.0.1.3"
+#endif /* RTMP_RBUS_SUPPORT */
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef SINGLE_SKU_V2
 #define SINGLE_SKU_TABLE_FILE_NAME	"/etc/Wireless/RT2870STA/SingleSKU.dat"
@@ -147,12 +169,15 @@ typedef char 				* PNDIS_BUFFER;
 /***********************************************************************************
  *	Ralink Specific network related constant definitions
  ***********************************************************************************/
+#ifdef CONFIG_STA_SUPPORT
+#define NDIS_PACKET_TYPE_DIRECTED		0
+#define NDIS_PACKET_TYPE_MULTICAST		1
+#define NDIS_PACKET_TYPE_BROADCAST		2
+#define NDIS_PACKET_TYPE_ALL_MULTICAST	3
+#define NDIS_PACKET_TYPE_PROMISCUOUS	4
+#endif /* CONFIG_STA_SUPPORT */
 
-#ifdef DOT11_VHT_AC
-#define MAX_PACKETS_IN_QUEUE				1024 /*(512)*/
-#else
 #define MAX_PACKETS_IN_QUEUE				(512)
-#endif /* DOT11_VHT_AC */
 
 
 /***********************************************************************************
@@ -840,6 +865,9 @@ extern int (*ra_classifier_hook_rx) (struct sk_buff *skb, unsigned long cycle);
 #ifdef CONFIG_AP_SUPPORT
 #define EEPROM_BIN_FILE_NAME  "/etc/Wireless/RT2860AP/e2p.bin"
 #endif /* CONFIG_AP_SUPPORT */
+#ifdef CONFIG_STA_SUPPORT
+#define EEPROM_BIN_FILE_NAME  "/etc/Wireless/RT2860STA/e2p.bin"
+#endif /* CONFIG_STA_SUPPORT */
 #endif /* RTMP_MAC_PCI */
 
 

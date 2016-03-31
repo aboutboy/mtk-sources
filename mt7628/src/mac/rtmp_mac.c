@@ -268,6 +268,10 @@ INT rtmp_mac_fifo_stat_update(RTMP_ADAPTER *pAd)
 		UAPSD_SP_AUE_Handle(pAd, pEntry, StaFifo.field.TxSuccess);
 #endif /* UAPSD_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+		if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS))
+			continue;
+#endif /* CONFIG_STA_SUPPORT */
 
 		if (!StaFifo.field.TxSuccess)
 		{
@@ -281,6 +285,8 @@ INT rtmp_mac_fifo_stat_update(RTMP_ADAPTER *pAd)
 				pEntry->NoBADataCountDown = 64;
 #endif /* DOT11_N_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+#endif /* CONFIG_STA_SUPPORT */
 
 				/* Update the continuous transmission counter.*/
 				pEntry->ContinueTxFailCnt++;
@@ -347,6 +353,8 @@ INT rtmp_mac_fifo_stat_update(RTMP_ADAPTER *pAd)
 			pAd->MacTab.tr_entry[pEntry->wcid].ContinueTxFailCnt = 0;
 			pAd->MacTab.tr_entry[pEntry->wcid].LockEntryTx = FALSE;
 
+#ifdef CONFIG_STA_SUPPORT
+#endif /* CONFIG_STA_SUPPORT */
 		}
 
 		succMCS = StaFifo.field.SuccessRate & 0x7F;
@@ -918,6 +926,14 @@ VOID write_tmac_info_Data(RTMP_ADAPTER *pAd, UCHAR *buf, TX_BLK *pTxBlk)
 	OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_SHORT_PREAMBLE_INUSED);
 	NdisZeroMemory(pTxWI, TXWISize);
 
+#ifdef CONFIG_STA_SUPPORT
+#ifdef QOS_DLS_SUPPORT
+	if (pMacEntry && IS_ENTRY_DLS(pMacEntry) &&
+		(pAd->StaCfg.BssType == BSS_INFRA))
+		wcid = BSSID_WCID;
+	else
+#endif /* QOS_DLS_SUPPORT */
+#endif /* CONFIG_STA_SUPPORT */
 		wcid = pTxBlk->Wcid;
 
 	sgi = pTransmit->field.ShortGI;
@@ -991,13 +1007,6 @@ VOID write_tmac_info_Data(RTMP_ADAPTER *pAd, UCHAR *buf, TX_BLK *pTxBlk)
 			if (mcs < MAX_MCS_SET)
 				pAd->DiagStruct.diag_info[pAd->DiagStruct.ArrayCurIdx].TxMcsCnt_HT[mcs]++;
 		}
-#ifdef DOT11_VHT_AC
-		else if (pTransmit->field.MODE == MODE_VHT) {
-			INT mcs_idx = ((mcs >> 4) * 10) +  (mcs & 0xf);
-			if (mcs_idx < MAX_VHT_MCS_SET)
-				pAd->DiagStruct.diag_info[pAd->DiagStruct.ArrayCurIdx].TxMcsCnt_VHT[mcs_idx]++;
-		}
-#endif /* DOT11_VHT_AC */
 #endif /* DBG_TX_MCS */
 	}
 #endif /* DBG_DIAGNOSE */
@@ -1058,10 +1067,6 @@ VOID write_tmac_info_Data(RTMP_ADAPTER *pAd, UCHAR *buf, TX_BLK *pTxBlk)
 
 		txwi_n->FRAG = TX_BLK_TEST_FLAG(pTxBlk, fTX_bAllowFrag);
 		txwi_n->ACK = TX_BLK_TEST_FLAG(pTxBlk, fTX_bAckRequired);
-#ifdef WFA_VHT_PF
-		if (pAd->force_noack == TRUE)
-			txwi_n->ACK = 0;
-#endif /* WFA_VHT_PF */
 		txwi_n->txop = pTxBlk->FrameGap;
 		txwi_n->wcid = wcid;
 		txwi_n->MPDUtotalByteCnt = pTxBlk->MpduHeaderLen + pTxBlk->SrcBufLen;
@@ -1102,10 +1107,6 @@ VOID write_tmac_info_Data(RTMP_ADAPTER *pAd, UCHAR *buf, TX_BLK *pTxBlk)
 		
 		txwi_o->FRAG = TX_BLK_TEST_FLAG(pTxBlk, fTX_bAllowFrag);
 		txwi_o->ACK = TX_BLK_TEST_FLAG(pTxBlk, fTX_bAckRequired);
-#ifdef WFA_VHT_PF
-		if (pAd->force_noack == TRUE)
-			txwi_o->ACK = 0;
-#endif /* WFA_VHT_PF */
 		txwi_o->txop = pTxBlk->FrameGap;
 		txwi_o->wcid = wcid;
 		txwi_o->MPDUtotalByteCnt = pTxBlk->MpduHeaderLen + pTxBlk->SrcBufLen;
@@ -1211,13 +1212,6 @@ VOID write_tmac_info_Cache(RTMP_ADAPTER *pAd, UCHAR *buf, TX_BLK *pTxBlk)
 			if (mcs < MAX_MCS_SET)
 				pAd->DiagStruct.diag_info[pAd->DiagStruct.ArrayCurIdx].TxMcsCnt_HT[mcs]++;
 		}
-#ifdef DOT11_VHT_AC
-		else if (pTransmit->field.MODE == MODE_VHT) {
-			INT mcs_idx = ((mcs >> 4) * 10) +  (mcs & 0xf);
-			if (mcs_idx < MAX_VHT_MCS_SET)
-				pAd->DiagStruct.diag_info[pAd->DiagStruct.ArrayCurIdx].TxMcsCnt_VHT[mcs_idx]++;
-		}
-#endif /* DOT11_VHT_AC */
 #endif /* DBG_TX_MCS */
 	}
 #endif /* DBG_DIAGNOSE */
@@ -1290,10 +1284,6 @@ VOID write_tmac_info_Cache(RTMP_ADAPTER *pAd, UCHAR *buf, TX_BLK *pTxBlk)
 		txwi_n->TxPktId = pkt_id;
 		txwi_n->MPDUtotalByteCnt = pTxBlk->MpduHeaderLen + pTxBlk->SrcBufLen;
 		txwi_n->ACK = TX_BLK_TEST_FLAG(pTxBlk, fTX_bAckRequired);
-#ifdef WFA_VHT_PF
-		if (pAd->force_noack == TRUE)
-			txwi_n->ACK = 0;
-#endif /* WFA_VHT_PF */
 
 #ifdef DOT11_N_SUPPORT
 		txwi_n->AMPDU = ampdu;
@@ -1324,10 +1314,6 @@ VOID write_tmac_info_Cache(RTMP_ADAPTER *pAd, UCHAR *buf, TX_BLK *pTxBlk)
 		txwi_o->PacketId = pkt_id;
 		txwi_o->MPDUtotalByteCnt = pTxBlk->MpduHeaderLen + pTxBlk->SrcBufLen;
 		txwi_o->ACK = TX_BLK_TEST_FLAG(pTxBlk, fTX_bAckRequired);
-#ifdef WFA_VHT_PF
-		if (pAd->force_noack == TRUE)
-			txwi_o->ACK = 0;
-#endif /* WFA_VHT_PF */
 
 #ifdef DOT11_N_SUPPORT
 		txwi_o->AMPDU = ampdu;
@@ -1720,12 +1706,22 @@ RTMP_REG_PAIR APMACRegTable[] = {
 };
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+RTMP_REG_PAIR STAMACRegTable[] = {
+	{WMM_AIFSN_CFG,	0x00002273},
+	{WMM_CWMIN_CFG,	0x00002344},
+	{WMM_CWMAX_CFG,	0x000034aa},
+};
+#endif /* CONFIG_STA_SUPPORT */
 
 
 #define NUM_MAC_REG_PARMS			(sizeof(MACRegTable) / sizeof(RTMP_REG_PAIR))
 #ifdef CONFIG_AP_SUPPORT
 #define NUM_AP_MAC_REG_PARMS		(sizeof(APMACRegTable) / sizeof(RTMP_REG_PAIR))
 #endif /* CONFIG_AP_SUPPORT */
+#ifdef CONFIG_STA_SUPPORT
+#define NUM_STA_MAC_REG_PARMS	(sizeof(STAMACRegTable) / sizeof(RTMP_REG_PAIR))
+#endif /* CONFIG_STA_SUPPORT */
 #ifdef RTMP_MAC
 #define NUM_RTMP_MAC_REG_PARAMS	(sizeof(MACRegTable_RTMP)/ sizeof(RTMP_REG_PAIR))
 #endif /* RTMP_MAC */
@@ -1764,6 +1760,17 @@ INT rtmp_mac_init(RTMP_ADAPTER *pAd)
 	}
 #endif /* CONFIG_AP_SUPPORT */
 
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
+	{
+		for (idx = 0; idx < NUM_STA_MAC_REG_PARMS; idx++)
+		{
+			RTMP_IO_WRITE32(pAd,
+				STAMACRegTable[idx].Register,
+				STAMACRegTable[idx].Value);
+		}
+	}
+#endif /* CONFIG_STA_SUPPORT */
 
 	rtmp_mac_pbf_init(pAd);
 

@@ -42,7 +42,9 @@
 #ifdef AGS_SUPPORT
 #include "ags.h"
 #endif /* AGS_SUPPORT */
-
+#ifdef BAND_STEERING
+#include "band_steering_def.h"
+#endif /* BAND_STEERING */
 #ifdef CONFIG_FPGA_MODE
 #include "fpga/fpga_ctl.h"
 #endif
@@ -116,6 +118,12 @@
 #endif /* MAT_SUPPORT */
 
 
+#ifdef CONFIG_STA_SUPPORT
+#include "sta.h"
+#ifdef WSC_STA_SUPPORT
+#define STA_WSC_INCLUDED
+#endif /* WSC_STA_SUPPORT */
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef BLOCK_NET_IF
 #include "netif_block.h"
@@ -174,6 +182,14 @@
 #endif /* APCLI_WPA_SUPPLICANT_SUPPORT */
 
 
+#ifdef CONFIG_STA_SUPPORT
+#ifdef NATIVE_WPA_SUPPLICANT_SUPPORT
+#ifndef WPA_SUPPLICANT_SUPPORT
+#error "Build for being controlled by NetworkManager or wext, please set HAS_WPA_SUPPLICANT=y and HAS_NATIVE_WPA_SUPPLICANT_SUPPORT=y"
+#endif /* WPA_SUPPLICANT_SUPPORT */
+#endif /* NATIVE_WPA_SUPPLICANT_SUPPORT */
+
+#endif /* CONFIG_STA_SUPPORT */
 
 #ifdef WSC_INCLUDED
 #include "crypt_biginteger.h"
@@ -196,6 +212,9 @@
 #include "pmf.h"
 #endif /* DOT11W_PMF_SUPPORT */
 
+#ifdef DOT11V_WNM_SUPPORT
+#include "wnm.h"
+#endif /* DOT11V_WNM_SUPPORT */
 
 #ifdef WAPI_SUPPORT
 #include "wapi.h"
@@ -203,9 +222,9 @@
 
 
 
-#ifdef DOT11_VHT_AC
-#include "vht.h"
-#endif /* DOT11_VHT_AC */
+#ifdef CONFIG_STA_SUPPORT
+#include "sta_cfg.h"
+#endif /* CONFIG_STA_SUPPORT */
 
 
 
@@ -219,6 +238,10 @@
 #include <linux/workqueue.h>
 #endif /* WORKQUEUE_BH / */
 
+
+#ifdef BAND_STEERING
+#include "band_steering.h"
+#endif /* BAND_STEERING */
 
 
 
@@ -251,6 +274,9 @@
 #include "wnm.h"
 #endif
 
+#ifdef CONFIG_HOTSPOT
+#include "hotspot.h"
+#endif
 
 #ifdef LINUX
 #ifdef CONFIG_TRACE_SUPPORT

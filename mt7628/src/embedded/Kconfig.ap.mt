@@ -193,8 +193,11 @@ menu "WiFi Operation Modes"
     endif
 
     #if MT_WIFI_MODE_STA || MT_WIFI_MODE_BOTH
-	#	source "drivers/net/wireless/mt_wifi_sta/Kconfig"
+
+		#source "drivers/net/wireless/mt_wifi_sta/Kconfig"
+
     #endif
+
 endmenu	
 
 endif

@@ -56,26 +56,31 @@ config WIFI_BASIC_FUNC
 config WSC_INCLUDED
 	bool "WSC (WiFi Simple Config)"
 	depends on WIFI_DRIVER
+	depends on MT_AP_SUPPORT
 	default y
 
 config WSC_V2_SUPPORT
 	bool "WSC V2(WiFi Simple Config Version 2.0)"
 	depends on WIFI_DRIVER
+	depends on MT_AP_SUPPORT
 	default y
 
 config DOT11W_PMF_SUPPORT
 	bool "PMF"
 	depends on WIFI_DRIVER
+	depends on MT_AP_SUPPORT
 	default y
 
 config LLTD_SUPPORT
 	bool "LLTD (Link Layer Topology Discovery Protocol)"
 	depends on WIFI_DRIVER
+	depends on MT_AP_SUPPORT
 	default n
 
 config QOS_DLS_SUPPORT
 	bool "802.11e DLS ((Direct-Link Setup) Support"
 	depends on WIFI_DRIVER
+	depends on MT_AP_SUPPORT
 	default n
 
 #config WAPI_SUPPORT
@@ -91,11 +96,13 @@ config QOS_DLS_SUPPORT
 config IGMP_SNOOP_SUPPORT
 	bool "IGMP snooping"
 	depends on WIFI_DRIVER
+	depends on MT_AP_SUPPORT
 	default n
 
 config BLOCK_NET_IF
 	bool "NETIF Block"
 	depends on WIFI_DRIVER
+	depends on MT_AP_SUPPORT
 	default n
 	help
 	Support Net interface block while Tx-Sw queue full
@@ -113,11 +120,13 @@ config NEW_RATE_ADAPT_SUPPORT
 config AGS_SUPPORT
 	bool "Adaptive Group Switching"
 	depends on WIFI_DRIVER && RATE_ADAPTION
+	depends on MT_AP_SUPPORT
 	default n
     
 config IDS_SUPPORT
 	bool "IDS (Intrusion Detection System) Support"
 	depends on WIFI_DRIVER
+	depends on MT_AP_SUPPORT
 	default n
 
 config WIFI_WORK_QUEUE
@@ -128,6 +137,7 @@ config WIFI_WORK_QUEUE
 config WIFI_SKB_RECYCLE
 	bool "SKB Recycle(Linux)"
 	depends on WIFI_DRIVER
+	depends on MT_AP_SUPPORT
 	default n
 
 #config RTMP_FLASH_SUPPORT
@@ -138,11 +148,13 @@ config WIFI_SKB_RECYCLE
 config LED_CONTROL_SUPPORT
 	bool "LED Support"
 	depends on WIFI_DRIVER
+	depends on MT_AP_SUPPORT
 	default n
 
 config ATE_SUPPORT
 	bool "ATE/QA Support"
 	depends on WIFI_DRIVER
+	depends on MT_AP_SUPPORT
 	default n
 
 config MEMORY_OPTIMIZATION
@@ -150,9 +162,22 @@ config MEMORY_OPTIMIZATION
 	depends on WIFI_DRIVER
 	default n
 
+config PASSPOINT_R2
+	bool "Passpoint Release-2 Support"
+	depends on WIFI_DRIVER
+	select DOT11W_PMF_SUPPORT
+	depends on MT_AP_SUPPORT
+	default n
+
+config SINGLE_SKU
+	bool "Single SKU Support"
+	depends on MT_AP_SUPPORT
+	default n
+
 config UAPSD
 	bool "UAPSD support"
 	depends on WIFI_DRIVER
+	depends on MT_AP_SUPPORT
 	default y
 
 #
@@ -215,9 +240,9 @@ menu "WiFi Operation Modes"
 		source "drivers/net/wireless/mt_wifi_ap/Kconfig"
     endif
 
-    #if WIFI_MODE_STA || WIFI_MODE_BOTH
-	#	source "drivers/net/wireless/mt_wifi_sta/Kconfig"
-    #endif
+    if WIFI_MODE_STA || WIFI_MODE_BOTH
+		source "drivers/net/wireless/mt_wifi_sta/Kconfig"
+    endif
 endmenu	
 
 endif

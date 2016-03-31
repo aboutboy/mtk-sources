@@ -314,6 +314,86 @@ VOID MtHandleRxPsPoll(RTMP_ADAPTER *pAd, UCHAR *pAddr, USHORT wcid, BOOLEAN isAc
 #endif /* CONFIG_AP_SUPPORT */
 }
 
+#define MT_PS_WATCHDOG_THRES 20
+
+VOID MtPsWatchDog(RTMP_ADAPTER *pAd)
+{
+	MAC_TABLE_ENTRY *pEntry = NULL;
+	STA_TR_ENTRY *tr_entry = NULL;
+	INT i = 0;
+	UINT32 Value=0;
+	struct wtbl_entry tb_entry;
+        union WTBL_1_DW3 *dw3 = (union WTBL_1_DW3 *)&tb_entry.wtbl_1.wtbl_1_d3.word;
+
+	if(pAd->PsmWatchDogDisabled)
+	{
+		DBGPRINT(RT_DEBUG_INFO, ("%s(): DISABLED THE PSM WATCHDOG BY CMD \n",__FUNCTION__));
+		return;
+	}		
+
+	for (i = 1; i< MAX_LEN_OF_MAC_TABLE; i++)   
+        {
+		pEntry = &pAd->MacTab.Content[i];
+		tr_entry = &pAd->MacTab.tr_entry[i];
+
+		if (IS_ENTRY_CLIENT(pEntry) && (pEntry->Sst == SST_ASSOC))
+		{
+			if ((pEntry->PsMode == 0) && (pEntry->PsmPktCount == 0))
+			{
+				NdisZeroMemory(&tb_entry, sizeof(tb_entry));
+                        	if (mt_wtbl_get_entry234(pAd, i, &tb_entry) == FALSE)
+                        	{
+                                	DBGPRINT(RT_DEBUG_ERROR, ("%s():Cannot found WTBL2/3/4\n",__FUNCTION__));
+                                	continue;
+                        	}
+				RTMP_IO_READ32(pAd, tb_entry.wtbl_addr[0]+12, &dw3->word);
+
+				if (dw3->field.psm == 1)
+				{
+					pEntry->PsmUpDuration++;
+					DBGPRINT(RT_DEBUG_OFF, ("%s(): HIT PsmPktCount/Dur: %d/%d on Wcid %d (SW_PSM:[%d|%d])\n\n\n\n\n",
+                                        	__FUNCTION__, pEntry->PsmPktCount, pEntry->PsmUpDuration, pEntry->wcid, pEntry->PsMode, 
+						tr_entry->PsMode));
+
+		                        if (pEntry->PsmUpDuration >= MT_PS_WATCHDOG_THRES)
+                		        {
+                                		DBGPRINT(RT_DEBUG_OFF, ("%s():Hit the PSM Case > %d x 100ms with Wcid %d (SW_PSM:[%d|%d])\n\n\n\n\n",
+                                        		__FUNCTION__, MT_PS_WATCHDOG_THRES, pEntry->wcid, pEntry->PsMode, tr_entry->PsMode));
+
+
+		                                MAC_IO_READ32(pAd, WTBL1OR, &Value);
+                		                Value |= PSM_W_FLAG;
+                                		MAC_IO_WRITE32(pAd, WTBL1OR, Value);
+
+		                                dw3->field.psm = 0;
+                		                HW_IO_WRITE32(pAd, tb_entry.wtbl_addr[0] + 12, dw3->word);
+
+                                		pEntry->PsMode = 0;
+                                		tr_entry->PsMode = 0;
+
+		                                MAC_IO_READ32(pAd, WTBL1OR, &Value);
+                		                Value &= ~PSM_W_FLAG;
+                                		MAC_IO_WRITE32(pAd, WTBL1OR, Value);
+                                		pEntry->PsmResetCount++;
+
+                		        }
+				}
+				else
+				{
+					pEntry->PsmPktCount = 0;
+                                	pEntry->PsmUpDuration = 0;
+				}
+
+			}
+			else
+			{
+				pEntry->PsmPktCount = 0;
+				pEntry->PsmUpDuration = 0;
+			}
+		}
+	}
+
+}
 
 /*
 	==========================================================================
@@ -347,7 +427,10 @@ BOOLEAN MtPsIndicate(RTMP_ADAPTER *pAd, UCHAR *pAddr, UCHAR wcid, UCHAR Psm)
 	old_psmode = pEntry->PsMode;
 	pEntry->NoDataIdleCount = 0;
 	pEntry->PsMode = Psm;
-	pAd->MacTab.tr_entry[wcid].PsMode = Psm;
+	tr_entry->PsMode = Psm;
+
+	if (IS_ENTRY_CLIENT(pEntry) && (pEntry->Sst == SST_ASSOC))
+		pEntry->PsmPktCount++;
 
 
 	if ((old_psmode == PWR_SAVE) && (Psm == PWR_ACTIVE))
@@ -443,7 +526,7 @@ VOID MtPsRedirectDisableCheck(
 		wlan_idx = (UINT32)wcid;
 		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR | DBG_FUNC_PS, ("%s(%d): [wlan_idx=0x%x] PS Redirect mode(pfgForce = %d) is enabled. Send PC Clear command to FW.\n", 
 			__FUNCTION__, __LINE__, wlan_idx, pfgForce));
-		//RTEnqueueInternalCmd(pAd, CMDTHREAD_PS_CLEAR, (VOID *)&wlan_idx, sizeof(UINT32));
+
 		MtClearPseRdTab(pAd, wlan_idx);
 	}
 }
@@ -516,6 +599,44 @@ VOID MtPsSendToken(
 	}
 }
 
+
+VOID MtPsRecovery(
+	RTMP_ADAPTER *pAd)
+{
+	MAC_TABLE_ENTRY *pMacEntry;
+	STA_TR_ENTRY *tr_entry;
+	UINT32 i;
+
+	for (i=1; i < MAX_LEN_OF_MAC_TABLE; i++)
+	{
+		pMacEntry = &pAd->MacTab.Content[i];
+		tr_entry = &pAd->MacTab.tr_entry[i];
+		if (IS_ENTRY_CLIENT(pMacEntry))
+		{
+			if (tr_entry->ps_state == APPS_RETRIEVE_CR_PADDING) {
+				tr_entry->ps_state = APPS_RETRIEVE_IDLE;
+			} else if ((tr_entry->ps_state == APPS_RETRIEVE_START_PS) 
+				|| (tr_entry->ps_state == APPS_RETRIEVE_GOING))
+			{
+				if (tr_entry->ps_queue.Number) {
+					MtEnqTxSwqFromPsQueue(pAd, i, tr_entry);
+				}
+
+
+				 if (pAd->MacTab.tr_entry[i].PsMode == PWR_ACTIVE) {
+					tr_entry->ps_state = APPS_RETRIEVE_IDLE;
+					 MtHandleRxPsPoll(pAd, &pMacEntry->Addr[0], i, TRUE);
+				 } else
+					tr_entry->ps_state = APPS_RETRIEVE_DONE;
+			} else if(tr_entry->ps_state == APPS_RETRIEVE_WAIT_EVENT)
+			{
+				RTEnqueueInternalCmd(pAd, CMDTHREAD_PS_CLEAR, (VOID *)&i, sizeof(UINT32));
+			}
+		}
+	}
+}
+
+
 VOID MtEnqTxSwqFromPsQueue(RTMP_ADAPTER *pAd, UCHAR qidx, STA_TR_ENTRY *tr_entry)
 {
 	ULONG IrqFlags = 0;
@@ -557,28 +678,5 @@ VOID MtEnqTxSwqFromPsQueue(RTMP_ADAPTER *pAd, UCHAR qidx, STA_TR_ENTRY *tr_entry
 
 	return;
 }
-
-VOID MtPsClearErrorHandle(RTMP_ADAPTER *pAd, UINT wcid)
-{
-	MAC_TABLE_ENTRY *pEntry = NULL;
-	STA_TR_ENTRY *tr_entry;
-	pEntry = &pAd->MacTab.Content[wcid];
-	tr_entry = &pAd->MacTab.tr_entry[wcid];
-
-	if (tr_entry->PsMode == PWR_ACTIVE)
-	{
-		tr_entry->ps_state = APPS_RETRIEVE_IDLE;
-	}
-	else
-	{
-		tr_entry->ps_state = APPS_RETRIEVE_DONE;
-	}
-
-	if (tr_entry->ps_state == APPS_RETRIEVE_IDLE)
-	{
-		MtHandleRxPsPoll(pAd, &pEntry->Addr[0], wcid, TRUE);
-	}
-}
-
 #endif /* MT_PS */
 
