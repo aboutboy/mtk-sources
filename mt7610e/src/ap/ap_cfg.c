@@ -642,6 +642,8 @@ INT set_ed_sta_count_proc(RTMP_ADAPTER *pAd, PSTRING arg);
 INT set_ed_ap_count_proc(RTMP_ADAPTER *pAd, PSTRING arg);
 #endif /* CONFIG_AP_SUPPORT */
 
+INT set_ed_current_rssi_threhold_proc(RTMP_ADAPTER *pAd, PSTRING arg);
+
 
 INT set_ed_block_tx_thresh(RTMP_ADAPTER *pAd, PSTRING arg);
 INT set_ed_false_cca_threshold(RTMP_ADAPTER *pAd, PSTRING arg);
@@ -1169,7 +1171,7 @@ static struct {
 	{"ed_ap_th", set_ed_ap_count_proc},
 #endif /* CONFIG_AP_SUPPORT */
 
-
+	{"ed_current_rssi_th", set_ed_current_rssi_threhold_proc},	
 	{"ed_th", set_ed_threshold},
 	{"ed_false_cca_th", set_ed_false_cca_threshold},
 	{"ed_blk_cnt", set_ed_block_tx_thresh},
@@ -1996,7 +1998,7 @@ INT RTMPAPSetInformation(
     			{
 					RTMP_GET_OS_PID(pObj->IappPid, IappPid);
 					pObj->IappPid_nr = IappPid;
-					DBGPRINT(RT_DEBUG_TRACE, ("RT_SET_APD_PID::(IappPid=%lu(0x%x))\n", IappPid, pObj->IappPid));
+					DBGPRINT(RT_DEBUG_TRACE, ("RT_SET_APD_PID::(IappPid=%lu)\n", IappPid));
 				}
     		}
 			break;
@@ -2013,7 +2015,7 @@ INT RTMPAPSetInformation(
     			{
 					RTMP_GET_OS_PID(pObj->apd_pid, apd_pid);
 					pObj->apd_pid_nr = apd_pid;
-					DBGPRINT(RT_DEBUG_TRACE, ("RT_SET_APD_PID::(ApdPid=%lu(0x%x))\n", apd_pid, pObj->apd_pid));
+					DBGPRINT(RT_DEBUG_TRACE, ("RT_SET_APD_PID::(ApdPid=%lu)\n", apd_pid));
 				}
     		}
 			break;
@@ -3906,7 +3908,7 @@ INT RTMPAPQueryInformation(
 				pMbssStat->bcPktsTx=  pMbss->bcPktsTx;
 				pMbssStat->bcPktsRx=  pMbss->bcPktsRx;
 				wrq->u.data.length = sizeof(MBSS_STATISTICS);
-				copy_to_user(wrq->u.data.pointer, pMbssStat, wrq->u.data.length);
+				Status = copy_to_user(wrq->u.data.pointer, pMbssStat, wrq->u.data.length);
 				os_free_mem(pAd, pMbssStat);
 			}
 		}
@@ -6415,7 +6417,7 @@ INT	Show_Sat_Proc(
 {
 	/* Sanity check for calculation of sucessful count */
 	printk("TransmitCountFromOS = %d\n", pAd->WlanCounters.TransmitCountFrmOs.u.LowPart);
-	printk("TransmittedFragmentCount = %d\n", pAd->WlanCounters.TransmittedFragmentCount.u.LowPart + pAd->WlanCounters.MulticastTransmittedFrameCount.QuadPart);
+	printk("TransmittedFragmentCount = %lld\n", (INT64)pAd->WlanCounters.TransmittedFragmentCount.u.LowPart + pAd->WlanCounters.MulticastTransmittedFrameCount.QuadPart);
 	printk("MulticastTransmittedFrameCount = %d\n", pAd->WlanCounters.MulticastTransmittedFrameCount.u.LowPart);
 	printk("FailedCount = %d\n", pAd->WlanCounters.FailedCount.u.LowPart);
 	printk("RetryCount = %d\n", pAd->WlanCounters.RetryCount.u.LowPart);
@@ -6545,7 +6547,7 @@ INT	Show_Sat_Reset_Proc(
 {
 	/* Sanity check for calculation of sucessful count */
 
-	printk("TransmittedFragmentCount = %d\n", pAd->WlanCounters.TransmittedFragmentCount.u.LowPart + pAd->WlanCounters.MulticastTransmittedFrameCount.QuadPart);
+	printk("TransmittedFragmentCount = %lld\n", (INT64)pAd->WlanCounters.TransmittedFragmentCount.u.LowPart + pAd->WlanCounters.MulticastTransmittedFrameCount.QuadPart);
 	printk("MulticastTransmittedFrameCount = %d\n", pAd->WlanCounters.MulticastTransmittedFrameCount.u.LowPart);
 	printk("FailedCount = %d\n", pAd->WlanCounters.FailedCount.u.LowPart);
 	printk("RetryCount = %d\n", pAd->WlanCounters.RetryCount.u.LowPart);
@@ -7764,7 +7766,7 @@ VOID RTMPAPIoctlRF(
 				sprintf(msg+strlen(msg), "%d %03d = %02X\n", bank_Id, rfId, regRF);
 			}
 		}
-		RtmpDrvAllRFPrint(NULL, msg, strlen(msg));
+		RtmpDrvAllRFPrint(NULL, (UCHAR *)msg, strlen(msg));
 		/* Copy the information into the user buffer */
 
 #ifdef LINUX
@@ -8520,7 +8522,6 @@ INT	Set_ApCli_AuthMode_Proc(
 	IN	PRTMP_ADAPTER	pAd, 
 	IN	PSTRING			arg)
 {
-	ULONG       i;
 	POS_COOKIE 	pObj = (POS_COOKIE) pAd->OS_Cookie;
 	UCHAR 		ifIndex;
 	UINT32 MaxWcidNum = MAX_LEN_OF_MAC_TABLE;
@@ -10514,7 +10515,6 @@ INT	Set_WscV2Support_Proc(
 	POS_COOKIE	pObj = (POS_COOKIE) pAd->OS_Cookie;
 	UCHAR		bEnable = (UCHAR)simple_strtol(arg, 0, 10);
 	PWSC_CTRL	pWscControl = &pAd->ApCfg.MBSSID[pObj->ioctl_if].WscControl;
-	INT 		IsAPConfigured = pWscControl->WscConfStatus;
 
 	if (bEnable == 0)
 		pWscControl->WscV2Info.bEnableWpsV2 = FALSE;
@@ -12092,17 +12092,6 @@ INT ed_status_read(RTMP_ADAPTER *pAd)
 			pAd->ed_silent_cnt++;
 
 			/* one point to disable edcca, we expect this is normal env not test env. */
-			if (pAd->false_cca_stat[pAd->ed_stat_lidx] > pAd->false_cca_threshold) {
-				pAd->ed_false_cca_cnt ++;
-				
-				if (pAd->ed_false_cca_cnt > pAd->ed_block_tx_threshold) {
-					stop_edcca = TRUE;
-
-					DBGPRINT(RT_DEBUG_ERROR, ("@@@ %s: pAd->false_cca_stat[%u]=%u,  pAd->false_cca_threshold=%u !!\n", 
-						__FUNCTION__, pAd->ed_stat_lidx, pAd->false_cca_stat[pAd->ed_stat_lidx],  pAd->false_cca_threshold));
-				}
-			} else
-				pAd->ed_false_cca_cnt = 0;
 		}
 	}
 	pAd->ed_trigger_stat[pAd->ed_stat_lidx] = pAd->ed_trigger_cnt;
@@ -12117,14 +12106,6 @@ INT ed_status_read(RTMP_ADAPTER *pAd)
 	
 	RTMP_IRQ_UNLOCK(&pAd->irq_lock, irqflag);
 	
-	if (stop_edcca) /* disable edcca!*/
-	{ 
-		if (pAd->ed_chk) {
-			DBGPRINT(RT_DEBUG_ERROR, ("@@@ %s: go to ed_monitor_exit()!!\n", __FUNCTION__));
-			ed_monitor_exit(pAd);
-		}
-	} 
-	else 
 	{
 		if (pAd->ed_trigger_cnt > pAd->ed_block_tx_threshold) {
 			if (pAd->ed_tx_stoped == FALSE) {
@@ -12296,6 +12277,19 @@ INT set_ed_ap_count_proc(RTMP_ADAPTER *pAd, PSTRING arg)
 	return TRUE;
 }
 #endif /* CONFIG_AP_SUPPORT */
+
+
+INT set_ed_current_rssi_threhold_proc(RTMP_ADAPTER *pAd, PSTRING arg)
+{
+	INT ed_rssi_threshold = simple_strtol(arg, 0, 10);
+
+	DBGPRINT(RT_DEBUG_OFF, ("%s()::ed_rssi_threshold=%d\n", 
+		__FUNCTION__, ed_rssi_threshold));
+
+	pAd->ed_rssi_threshold = ed_rssi_threshold;
+
+	return TRUE;
+}
 
 
 INT show_ed_stat_proc(RTMP_ADAPTER *pAd, PSTRING arg)
@@ -12521,6 +12515,7 @@ INT Set_DyncVgaEnable_Proc(
 {
 	UINT Enable;
 	UINT32 bbp_val, bbp_reg = AGC1_R8;
+	BOOLEAN Cancelled;
 
 	Enable = simple_strtol(arg, 0, 10);
 
@@ -12531,6 +12526,8 @@ INT Set_DyncVgaEnable_Proc(
 		RTMP_BBP_IO_READ32(pAd, bbp_reg, &bbp_val);
 		bbp_val = (bbp_val & 0xffff00ff) | (pAd->CommonCfg.MO_Cfg.Stored_BBP_R66 << 8);
 		RTMP_BBP_IO_WRITE32(pAd, bbp_reg, bbp_val);
+
+		RTMPCancelTimer(&pAd->CommonCfg.MO_Cfg.DyncVgaLockTimer, &Cancelled);
 	}
 		
 	DBGPRINT(RT_DEBUG_TRACE, ("Set_DyncVgaEnable_Proc::(enable = %d)\n", pAd->CommonCfg.MO_Cfg.bDyncVgaEnable));

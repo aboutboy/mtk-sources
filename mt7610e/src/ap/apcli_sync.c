@@ -405,6 +405,18 @@ static VOID ApCliPeerProbeRspAtJoinAction(
 				RTMPZeroMemory(&pApCliEntry->ApCliMlmeAux.AddHtInfo, SIZE_ADD_HT_INFO_IE);
 				pApCliEntry->ApCliMlmeAux.HtCapabilityLen = 0;
 			}
+
+#ifdef DOT11_VHT_AC
+			if (ie_list->vht_op_len)
+			{
+				/*
+					To save the VHT Channel Width of AP.
+				*/
+				RTMPZeroMemory(&pApCliEntry->ApCliMlmeAux.vht_op, sizeof(VHT_OP_IE));
+				NdisCopyMemory(&pApCliEntry->ApCliMlmeAux.vht_op, &(ie_list->vht_op_ie), ie_list->vht_op_len);
+			}
+#endif /* DOT11_VHT_AC */
+
 			ApCliUpdateMlmeRate(pAd, ifIndex);
 
 #ifdef DOT11_N_SUPPORT
@@ -497,7 +509,8 @@ static VOID ApCliProbeTimeoutAtJoinAction(
 
 	PULONG pCurrCtrlState = &pAd->ApCfg.ApCliTab[ifIndex].CtrlCurrState;
 
-	DBGPRINT(RT_DEBUG_TRACE, ("APCLI_SYNC - ProbeTimeoutAtJoinAction, ifIndex = %d, pCurrCtrlState = %d, pCurrSyncState = %d\n", ifIndex, *pCurrCtrlState, *pCurrState));
+	DBGPRINT(RT_DEBUG_TRACE, ("APCLI_SYNC - ProbeTimeoutAtJoinAction, ifIndex = %d, pCurrCtrlState = %ld, pCurrSyncState = %ld\n", 
+		ifIndex, *pCurrCtrlState, *pCurrState));
 
 	if (ifIndex >= MAX_APCLI_NUM)
 		return;
@@ -641,9 +654,14 @@ static VOID ApCliEnqueueProbeRequest(
 		if (WMODE_CAP_AC(pAd->CommonCfg.PhyMode) &&
 			(pAd->CommonCfg.Channel > 14))
 		{
-			build_vht_cap_ie(pAd, (UCHAR *)&pApCliEntry->ApCliMlmeAux.vht_cap);
+			/*
+				We don't know VHT_BW of AP in this stage.
+				Use own AP's VHT MAX MCS CAp in probe request.
+			*/
+			
+			build_vht_cap_ie(pAd, (UCHAR *)&pApCliEntry->ApCliMlmeAux.vht_cap, pAd->CommonCfg.vht_max_mcs_cap);
 			pApCliEntry->ApCliMlmeAux.vht_cap_len = sizeof(VHT_CAP_IE);
-			FrameLen += build_vht_ies(pAd, (UCHAR *)(pOutBuffer + FrameLen), SUBTYPE_PROBE_REQ);
+			FrameLen += build_vht_ies(pAd, (UCHAR *)(pOutBuffer + FrameLen), SUBTYPE_PROBE_REQ, pAd->CommonCfg.vht_max_mcs_cap);
 		}
 #endif /* DOT11_VHT_AC */
 

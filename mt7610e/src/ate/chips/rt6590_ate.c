@@ -1559,7 +1559,7 @@ VOID MT76x0ATE_Calibration(
 			2 R-calibration 
 		*/
 		RTMP_CHIP_CALIBRATION(pAd, R_CALIBRATION, 0x0);
-		MT76x0_VCO_CalibrationMode3(pAd);
+		MT76x0_VCO_CalibrationMode3(pAd, Channel);
 		RTMPusecDelay(1);
 	}
 

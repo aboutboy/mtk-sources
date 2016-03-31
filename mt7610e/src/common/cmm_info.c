@@ -1271,7 +1271,7 @@ INT	Set_DebugFunc_Proc(
 {
 	DBGPRINT_S(RT_DEBUG_TRACE, ("==>%s()\n", __FUNCTION__));
 	RTDebugFunc = simple_strtol(arg, 0, 10);
-	DBGPRINT_S(RT_DEBUG_TRACE, ("%s(): Set RTDebugFunc = 0x%x\n",__FUNCTION__, RTDebugFunc));
+	DBGPRINT_S(RT_DEBUG_TRACE, ("%s(): Set RTDebugFunc = 0x%lx\n",__FUNCTION__, RTDebugFunc));
 
 	return TRUE;
 }
@@ -4672,7 +4672,7 @@ INT	Show_STA_RAInfo_Proc(
 }
 
 
-INT Show_MacTable_Proc(RTMP_ADAPTER *pAd, PSTRING *arg)
+INT Show_MacTable_Proc(RTMP_ADAPTER *pAd, PSTRING arg)
 {
 	INT i;
    	UINT32 RegValue;
@@ -4763,6 +4763,8 @@ INT Show_Scanning_Proc(RTMP_ADAPTER *pAd, PSTRING arg)
 	{
 		DBGPRINT(RT_DEBUG_OFF, ("### Driver Idle\n"));
 	}
+
+	return TRUE;
 }
 INT show_devinfo_proc(RTMP_ADAPTER *pAd, PSTRING arg)
 {
@@ -6488,7 +6490,7 @@ INT set_rf(RTMP_ADAPTER *pAd, PSTRING arg)
 	
 	if (arg)
 	{
-		rv = sscanf(arg, "%d-%d-%x", &(bank_id), &(rf_id), &(rf_val));
+		rv = sscanf(arg, "%d-%d-%c", &(bank_id), &(rf_id), &(rf_val));
 		DBGPRINT(RT_DEBUG_OFF, ("%s():rv = %d, bank_id = %d, rf_id = %d, rf_val = 0x%02x\n", __FUNCTION__, rv, bank_id, rf_id, rf_val));
 		if (rv == 3)
 		{

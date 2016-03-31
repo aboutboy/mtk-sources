@@ -776,9 +776,6 @@ VOID APMlmeSetTxRate(
 					else
 						bw_cap = pAdaptTbEntry->BW;
 					break;
-				case BW_10:
-					bw_cap = BW_10;
-					break;
 				case BW_20:
 				default:
 					if (pAdaptTbEntry->BW == BW_80 || pAdaptTbEntry->BW == BW_40)
@@ -2191,11 +2188,13 @@ VOID RTMPSetSupportMCS(
 					{							
 						for (i = 0; i <= 7; i++)
 							pEntry->SupportVHTMCS[i] = TRUE;
-						if (vht_cap->mcs_set.rx_mcs_map.mcs_ss1 == VHT_MCS_CAP_8)
+						if ((vht_cap->mcs_set.rx_mcs_map.mcs_ss1 == VHT_MCS_CAP_8) &&
+							(pAd->CommonCfg.vht_max_mcs_cap >= VHT_MCS_CAP_8))
 						{
 							pEntry->SupportVHTMCS[8] = TRUE;
 						}
-						else if (vht_cap->mcs_set.rx_mcs_map.mcs_ss1 == VHT_MCS_CAP_9)
+						else if ((vht_cap->mcs_set.rx_mcs_map.mcs_ss1 == VHT_MCS_CAP_9) &&
+							(pAd->CommonCfg.vht_max_mcs_cap == VHT_MCS_CAP_9))
 						{
 							pEntry->SupportVHTMCS[8] = TRUE;
 #ifdef MT76x0

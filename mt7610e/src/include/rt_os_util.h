@@ -644,7 +644,7 @@ VOID RtmpDrvAllE2PPrint(
 
 VOID RtmpDrvAllRFPrint(
 	IN VOID *pReserved,
-	IN UINT32 *pBuf,
+	IN UCHAR *pBuf,
 	IN UINT32 BufLen);
 
 int RtmpOSIRQRelease(
@@ -871,6 +871,22 @@ void CFG80211OS_ConnectResultInform(
 	IN UCHAR					*pRspIe,
 	IN UINT32					RspIeLen,
 	IN UCHAR					FlgIsSuccess);
+
+VOID CFG80211OS_NewSta(
+	IN PNET_DEV pNetDev, 
+	IN const PUCHAR mac_addr, 
+	IN const PUCHAR assoc_frame, 
+	IN UINT32 assoc_len);
+
+VOID CFG80211OS_DelSta(
+	IN PNET_DEV pNetDev, 
+	IN const PUCHAR mac_addr);
+
+BOOLEAN CFG80211OS_RxMgmt(
+	IN PNET_DEV pNetDev, 
+	IN INT32 freq, 
+	IN PUCHAR frame, 
+	IN UINT32 len);;
 #endif /* RT_CFG80211_SUPPORT */
 
 

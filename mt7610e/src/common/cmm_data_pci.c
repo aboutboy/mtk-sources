@@ -184,16 +184,6 @@ VOID ral_write_txd(
 }
 
 #ifdef RLT_MAC
-static VOID rlt_update_txinfo(
-	IN RTMP_ADAPTER *pAd,
-	IN TXINFO_STRUC *pTxInfo,
-	IN TX_BLK *pTxBlk)
-{
-	if (pTxBlk->naf_type) {
-		struct _TXINFO_NMAC_PKT *nmac_info;
-		nmac_info = (struct _TXINFO_NMAC_PKT *)pTxInfo;
-	}
-}
 #endif /* RLT_MAC */
 
 
@@ -1164,7 +1154,11 @@ VOID	RTMPHandlePreTBTTInterrupt(
 #ifdef CONFIG_AP_SUPPORT
 	if (pAd->OpMode == OPMODE_AP)
 	{
+#ifdef RT_CFG80211_SUPPORT
+		RT_CFG80211_BEACON_TIM_UPDATE(pAd);
+#else /* RT_CFG80211_SUPPORT */
 		APUpdateAllBeaconFrame(pAd);
+#endif /* !RT_CFG80211_SUPPORT */
 	}
 	else
 #endif /* CONFIG_AP_SUPPORT */
@@ -1825,7 +1819,7 @@ BOOLEAN RxRing1DoneInterruptHandle(RTMP_ADAPTER *pAd)
 		if (pFceInfo->info_type == CMD_PACKET)
 		{
 			DBGPRINT(RT_DEBUG_TRACE,("%s: Receive command packet.\n", __FUNCTION__));
-			CmdRspEventCallbackHandle(pAd, pFceInfo);
+			CmdRspEventCallbackHandle(pAd, (UCHAR *)pFceInfo);
 			RELEASE_NDIS_PACKET(pAd, pRxPacket, NDIS_STATUS_SUCCESS);
 			continue;
 		}

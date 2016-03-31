@@ -175,8 +175,10 @@ endif
 ifeq ($(OSABL),NO)
 ifeq ($(HAS_CFG80211_SUPPORT),y)
 $(MOD_NAME)-objs += \
-	../../os/linux/cfg80211.o\
-	../../os/linux/cfg80211drv.o
+	../../os/linux/cfg80211/cfg80211.o\
+	../../os/linux/cfg80211/cfg80211drv.o\
+	../../os/linux/cfg80211/cfg80211_ap.o\
+	../../os/linux/cfg80211/cfg80211_util.o
 endif
 endif
 

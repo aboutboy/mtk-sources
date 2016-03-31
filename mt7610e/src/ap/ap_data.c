@@ -4392,15 +4392,14 @@ VOID APRxEAPOLFrameIndicate(
 
 
 	
-#ifdef HOSTAPD_SUPPORT
-	if ((pEntry) && pAd->ApCfg.MBSSID[pEntry->apidx].Hostapd == TRUE)
+#ifdef RT_CFG80211_SUPPORT
+	if((pEntry) && (pAd->VifNextMode != RT_CMD_80211_IFTYPE_NOT_USED))
 	{
-		DBGPRINT(RT_DEBUG_TRACE, ("Indicate_Legacy_Packet\n"));
+		DBGPRINT(RT_DEBUG_TRACE, ("CFG80211 EAPOL Indicate_Legacy_Packet\n"));
 		Indicate_Legacy_Packet(pAd, pRxBlk, FromWhichBSSID);
-		return;
+        return;
 	}
-#endif/*HOSTAPD_SUPPORT*/
-
+#endif /* RT_CFG80211_SUPPORT */
 
 #ifdef APCLI_SUPPORT
 #ifdef APCLI_WPA_SUPPLICANT_SUPPORT
@@ -5904,7 +5903,7 @@ BOOLEAN APRxDoneInterruptHandle(RTMP_ADAPTER *pAd)
 			DBGPRINT(RT_DEBUG_TRACE,("%s: Receive command packet.\n", __FUNCTION__));
 			if (pAd->chipCap.CmdRspRxRing != RX_RING0)
 				DBGPRINT(RT_DEBUG_WARN,("%s: CmdRspRxRing is not RxRing0\n", __FUNCTION__));
-			CmdRspEventCallbackHandle(pAd, pFceInfo);
+			CmdRspEventCallbackHandle(pAd, (UCHAR *)pFceInfo);
 			RELEASE_NDIS_PACKET(pAd, pRxPacket, NDIS_STATUS_SUCCESS);
 			continue;
 		}

@@ -7,6 +7,8 @@ clean:
 	rm -f ../../common/.*.cmd .*.flags .*.d
 	rm -f ../../os/linux/*.o *.ko *.mod.o *.mod.c
 	rm -f ../../os/linux/.*.cmd .*.flags .*.d
+	rm -f ../../os/linux/cfg80211/*.o *.ko *.mod.o *.mod.c
+	rm -f ../../os/linux/cfg80211/.*.cmd .*.flags .*.d
 	rm -fr ../../os/linux/.tmp_versions
 #Must clean Module.symvers; or you will suffer symbol version not match
 #when OS_ABL = YES.

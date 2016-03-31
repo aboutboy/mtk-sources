@@ -276,6 +276,22 @@ INT build_vht_pwr_envelope(RTMP_ADAPTER *pAd, UCHAR *buf)
 	return len;
 }
 
+VOID vht_max_mcs_cap(RTMP_ADAPTER *pAd)
+{
+	DBGPRINT(RT_DEBUG_TRACE, ("@@@ %s: disable_vht_256QAM = 0x%x\n", 
+		__FUNCTION__, pAd->CommonCfg.disable_vht_256QAM));		
+
+#ifdef DISANLE_VHT80_256_QAM	
+	if ((pAd->CommonCfg.vht_bw == VHT_BW_80) && 
+		(pAd->CommonCfg.disable_vht_256QAM & DISABLE_VHT80_256_QAM))
+		pAd->CommonCfg.vht_max_mcs_cap = VHT_MCS_CAP_7;
+	else
+#endif /* DISANLE_VHT80_256_QAM */
+	pAd->CommonCfg.vht_max_mcs_cap = VHT_MCS_CAP_9;
+	
+	DBGPRINT(RT_DEBUG_TRACE, ("@@@ %s: vht_max_mcs_cap = %d\n", 
+		__FUNCTION__, pAd->CommonCfg.vht_max_mcs_cap));		
+}
 
 /*
 	Defined in IEEE 802.11AC
@@ -327,7 +343,7 @@ INT build_vht_op_ie(RTMP_ADAPTER *pAd, UCHAR *buf)
 				/*
 					MT7650E2 support VHT_MCS8 & VHT_MCS9.
 				*/
-				vht_op.basic_mcs_set.mcs_ss1 = VHT_MCS_CAP_9;
+				vht_op.basic_mcs_set.mcs_ss1 = pAd->CommonCfg.vht_max_mcs_cap;
 			}
 			else
 #endif /* MT76x0 */
@@ -352,7 +368,7 @@ INT build_vht_op_ie(RTMP_ADAPTER *pAd, UCHAR *buf)
 
 	Appeared in Beacon, (Re)AssocReq, (Re)AssocResp, ProbReq/Resp frames
 */
-INT build_vht_cap_ie(RTMP_ADAPTER *pAd, UCHAR *buf)
+INT build_vht_cap_ie(RTMP_ADAPTER *pAd, UCHAR *buf, UCHAR VhtMaxMcsCap)
 {
 	VHT_CAP_IE vht_cap_ie;
 #ifdef RT_BIG_ENDIAN
@@ -413,11 +429,12 @@ INT build_vht_cap_ie(RTMP_ADAPTER *pAd, UCHAR *buf)
 				/*
 					MT7650E2 support VHT_MCS8 & VHT_MCS9.
 				*/
-				vht_cap_ie.mcs_set.rx_mcs_map.mcs_ss1 = VHT_MCS_CAP_9;
+				vht_cap_ie.mcs_set.rx_mcs_map.mcs_ss1 = VhtMaxMcsCap;
 			}
 			else
 #endif /* MT76x0 */
 			vht_cap_ie.mcs_set.rx_mcs_map.mcs_ss1 = VHT_MCS_CAP_7;
+
 			break;
 		case 2:
 			vht_cap_ie.mcs_set.rx_high_rate = 585;
@@ -439,7 +456,7 @@ INT build_vht_cap_ie(RTMP_ADAPTER *pAd, UCHAR *buf)
 				/*
 					MT7650E2 support VHT_MCS8 & VHT_MCS9.
 				*/
-				vht_cap_ie.mcs_set.tx_mcs_map.mcs_ss1 = VHT_MCS_CAP_9;
+				vht_cap_ie.mcs_set.tx_mcs_map.mcs_ss1 = VhtMaxMcsCap;
 			}
 			else
 #endif /* MT76x0 */
@@ -475,7 +492,7 @@ INT build_vht_cap_ie(RTMP_ADAPTER *pAd, UCHAR *buf)
 }
 
 
-INT build_vht_ies(RTMP_ADAPTER *pAd, UCHAR *buf, UCHAR frm)
+INT build_vht_ies(RTMP_ADAPTER *pAd, UCHAR *buf, UCHAR frm, UCHAR VhtMaxMcsCap)
 {
 	INT len = 0;
 	EID_STRUCT eid_hdr;
@@ -486,7 +503,7 @@ INT build_vht_ies(RTMP_ADAPTER *pAd, UCHAR *buf, UCHAR frm)
 	NdisMoveMemory(buf, (UCHAR *)&eid_hdr, 2);
 	len = 2;
 
-	len += build_vht_cap_ie(pAd, (UCHAR *)(buf + len));
+	len += build_vht_cap_ie(pAd, (UCHAR *)(buf + len), VhtMaxMcsCap);
 	if (frm == SUBTYPE_BEACON || frm == SUBTYPE_PROBE_RSP ||
 		frm == SUBTYPE_ASSOC_RSP || frm == SUBTYPE_REASSOC_RSP)
 	{

@@ -6244,7 +6244,7 @@ VOID ATEPeriodicExec(
 #ifdef MT76x0
 					if (IS_MT76x0(pAd))
 					{
-						MT76x0_VCO_CalibrationMode3(pAd);
+						MT76x0_VCO_CalibrationMode3(pAd, pATEInfo->Channel);
 					}
 					else
 #endif /* MT76x0 */

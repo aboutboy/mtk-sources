@@ -335,7 +335,11 @@ static int __devinit rt2860_probe(struct pci_dev *pdev, const struct pci_device_
 	}
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,5,0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,27)
+	print_name = (PSTRING)pci_name(pdev);
+#else
 	print_name = pci_name(pdev);
+#endif
 #else
 	print_name = pdev->slot_name;
 #endif /* LINUX_VERSION_CODE */

@@ -782,11 +782,7 @@ static  INT DO_RACFG_CMD_IO_READ(
 	offset = OS_NTOHL(offset);
 
 	{
-		/*
-			We do not need the base address.
-			So just extract the offset out.
-		*/
-		offset &= 0x0000FFFF;
+		offset &= 0x000FFFFF;
 		RTMP_IO_READ32(pAd, offset, &value);
 
 #ifdef RT6352
@@ -877,11 +873,7 @@ static  INT DO_RACFG_CMD_IO_WRITE(
 
 	offset = OS_NTOHL(offset);
 
-	/*
-		We do not need the base address.
-		So just extract the offset out.
-	*/
-	offset &= 0x0000FFFF;
+	offset &= 0x000FFFFF;
 	value = OS_NTOHL(value);
 
 	RTMP_IO_WRITE32(pAd, offset, value);
@@ -956,7 +948,7 @@ static  INT DO_RACFG_CMD_IO_READ_BULK(
 	memcpy(&offset, &pRaCfg->status, 4);
 	offset = OS_NTOHL(offset);
 
-	offset &= 0x0000FFFF;
+	offset &= 0x000FFFFF; 
 	memcpy(&len, pRaCfg->data+2, 2);
 	len = OS_NTOHS(len);
 
